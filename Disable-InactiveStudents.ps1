@@ -1,12 +1,11 @@
 #Requires -Version 5.0
-<# 
+<#
 .SYNOPSIS
- Queries Aeries Student Inforamtion System and Active Directory and determines which AD accounts need to be disabled. 
+ Queries Aeries Student Inforamtion System and Active Directory and determines which AD accounts need to be disabled.
 .DESCRIPTION
  EmployeeIDs Queried from Aeries and Active Directory student user objects are compared. If AD Object employeeID attribute
- is not present in Aeries results then the AD account is disabled, moved to the 'Disabled student OU', and 
- if present the user's GSUite account is suspended as well. A hold date can be place in the user objects 'info' attribute
- and if present will be used to determine if the account should remain active until the hold date expires.  
+ is not present in Aeries results then the AD account is disabled,
+ and if present will be used to determine if the account should remain active until the hold date expires.
 .EXAMPLE
  .\Disable-InactiveStudents.ps1 -DC $dc -ADCredential $adCreds -SISConnection $sisConn -SISCredential $sisCreds
 .EXAMPLE
@@ -16,7 +15,7 @@
 .OUTPUTS
  Log entries are recorded for each operation
 .NOTES
- In special cases an account can be held open until a set date. This is recorded in the info attribute of the user object.
+ In special cases an account can be held open until a set date. This is recorded in the 'info' attribute of the user object.
  the format to store the date could be for example:
  { "keepUntil": "9/1/2025" }
  or
@@ -30,12 +29,12 @@
  { "keepUntil": "Sep 1st 2025" }
 #>
 [cmdletbinding()]
-param ( 
+param (
  [Parameter(Mandatory = $True)]
  [Alias('DC', 'Server')]
  [ValidateScript( { Test-Connection -ComputerName $_ -Quiet -Count 5 })]
  [string]$DomainController,
- # PSSession to Domain Controller and Use Active Directory CMDLETS  
+ # PSSession to Domain Controller and Use Active Directory CMDLETS
  [Parameter(Mandatory = $True)]
  [Alias('ADCred')]
  [System.Management.Automation.PSCredential]$ADCredential,
@@ -98,7 +97,7 @@ Add-Log info ("AD Accounts Needing deactivation :" + $inactiveEmpIds.count)
 
 foreach ( $empId in $inactiveEmpIds.employeeID ) {
  $user = $allADStudents.Where( { $_.employeeID -eq $empId })
- if ( !$user ) { continue } # Skip missign users
+ if ( !$user ) { continue } # Skip missing users
  $sam = $user.SamAccountName
  $guid = $user.ObjectGUID
  if ( $user.info ) {
@@ -117,8 +116,8 @@ foreach ( $empId in $inactiveEmpIds.employeeID ) {
  Add-Log disable $sam
  Set-ADUser -Identity $guid -Enabled $False -Whatif:$WhatIf # Disable the account
  Set-ADUser -Identity $guid -Replace @{UserAccountControl = 0x0202 } # Set uac to 514 to notify Bradford to stop access to network
- $disabledOU = 'OU=Disabled_Student_Objects,OU=Disabled_User_Objects,DC=chico,DC=usd'
- Move-ADObject -Identity $guid -TargetPath $disabledOU -Whatif:$WhatIf # move to disabled ou
+ # $disabledOU = 'OU=Disabled_Student_Objects,OU=Disabled_User_Objects,DC=chico,DC=usd'
+ # Move-ADObject -Identity $guid -TargetPath $disabledOU -Whatif:$WhatIf # move to disabled ou
  # Suspend Gsuite Account
  if ($user.HomePage -and !$WhatIf) { (& $gamExe update user $user.HomePage suspended on) *>$null }
 }
