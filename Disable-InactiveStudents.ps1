@@ -55,7 +55,7 @@ param (
 Get-PSSession | Remove-PSSession -WhatIf:$false
 
 # AD Domain Controller Session
-$adCmdLets = 'Get-ADUser', 'Set-ADUser'
+$adCmdLets = 'Get-ADUser', 'Set-ADUser', 'Set-ADAccountPassword'
 $adSession = New-PSSession -ComputerName $DomainController -Credential $ADCredential
 Import-PSSession -Session $adSession -Module ActiveDirectory -CommandName $adCmdLets -AllowClobber
 
