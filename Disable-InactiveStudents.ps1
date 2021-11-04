@@ -55,7 +55,7 @@ param (
 Get-PSSession | Remove-PSSession -WhatIf:$false
 
 # AD Domain Controller Session
-$adCmdLets = 'Get-ADUser', 'Set-ADUser', 'Move-ADObject'
+$adCmdLets = 'Get-ADUser', 'Set-ADUser'
 $adSession = New-PSSession -ComputerName $DomainController -Credential $ADCredential
 Import-PSSession -Session $adSession -Module ActiveDirectory -CommandName $adCmdLets -AllowClobber
 
@@ -116,8 +116,6 @@ foreach ( $empId in $inactiveEmpIds.employeeID ) {
  Add-Log disable $sam
  Set-ADUser -Identity $guid -Enabled $False -Whatif:$WhatIf # Disable the account
  Set-ADUser -Identity $guid -Replace @{UserAccountControl = 0x0202 } # Set uac to 514 to notify Bradford to stop access to network
- # $disabledOU = 'OU=Disabled_Student_Objects,OU=Disabled_User_Objects,DC=chico,DC=usd'
- # Move-ADObject -Identity $guid -TargetPath $disabledOU -Whatif:$WhatIf # move to disabled ou
  # Suspend Gsuite Account
  if ($user.HomePage -and !$WhatIf) { (& $gamExe update user $user.HomePage suspended on) *>$null }
 }
