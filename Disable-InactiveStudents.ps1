@@ -66,6 +66,18 @@ $gamExe = '.\lib\gam-64\gam.exe'
 . .\lib\Add-Log.ps1
 . .\lib\Invoke-SqlCommand.ps1 # Useful function for querying SQL and returning results
 
+function Get-RandomCharacters($length, $characters) {
+ $random = 1..$length | ForEach-Object { Get-Random -Maximum $characters.length }
+ $private:ofs = ''
+ return [String]$characters[$random]
+}
+function New-RandomPw {
+ $chars = 'ABCDEFGHKLMNOPRSTUVWXYZabcdefghiklmnoprstuvwxyz1234567890!$#%&*@'
+ do { $pw = (Get-RandomCharacters -length 16 -characters $chars) }
+ until ($pw -match '[A-Za-z\d!$#%&*@]') # Make sure minimum criteria met using regex p@ttern.
+ $pw # Output random password
+}
+
 # Processing
 $properties = 'AccountExpirationDate', 'EmployeeID', 'HomePage', 'info'
 $allStuParams = @{
@@ -116,6 +128,11 @@ foreach ( $empId in $inactiveEmpIds.employeeID ) {
  Add-Log disable $sam
  Set-ADUser -Identity $guid -Enabled $False -Whatif:$WhatIf # Disable the account
  Set-ADUser -Identity $guid -Replace @{UserAccountControl = 0x0202 } # Set uac to 514 to notify Bradford to stop access to network
+
+ Add-Log udpate ('{0}, AD account password set to random' -f $sam) -Whatif:$WhatIf
+ $randomPW = ConvertTo-SecureString -String (New-RandomPw) -AsPlainText -Force
+ Set-ADAccountPassword -Identity $guid -NewPassword $randomPW -Confirm:$false -WhatIf:$WhatIf
+
  # Suspend Gsuite Account
  if ($user.HomePage -and !$WhatIf) { (& $gamExe update user $user.HomePage suspended on) *>$null }
 }
