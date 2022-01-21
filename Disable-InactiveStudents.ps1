@@ -51,91 +51,100 @@ param (
  [SWITCH]$WhatIf
 )
 
+# Variables
+$gamExe = '.\lib\gam-64\gam.exe'
+
+# Imported Functions
+. .\lib\Clear-SessionData.ps1
+. .\lib\Show-TestRun.ps1
+. .\lib\Load-Module.ps1
+. .\lib\New-RandomPassword.ps1
+
+# Script Functions
+
+function Get-ActiveADStudents {
+ $properties = 'AccountExpirationDate', 'EmployeeID', 'HomePage', 'info'
+ $allStuParams = @{
+  Filter     = { (homepage -like "*@*") -and (employeeID -like "*") }
+  SearchBase = 'OU=Students,OU=Users,OU=Domain_Root,DC=chico,DC=usd'
+  Properties = $properties
+ }
+
+ Get-ADUser @allStuParams |
+ Where-Object { ($_.samaccountname -match "^\b[a-zA-Z][a-zA-Z]\d{5,6}\b$") -and ($_.employeeID -match "^\d{5,6}$") }
+}
+
+function Select-InactiveADObj {
+ begin {
+  $sqlParams = @{
+   Server     = $SISServer
+   Database   = $SISDatabase
+   Credential = $SISCredential
+  }
+  $query = Get-Content -Path '.\sql\active-students.sql' -Raw
+  $aeriesActive = Invoke-SqlCmd @sqlParams -Query $query
+ }
+ process {
+  if ($aeriesActive.employeeID -notcontains $_.employeeId) {
+   Write-Host "$($_.employeeId), Inactive student found"
+   $_
+  }
+ }
+}
+
+# Processing
+
 # CLS;$error.clear() # Clear Screen and $error
 Get-PSSession | Remove-PSSession -WhatIf:$false
+'SQLServer' | Load-Module
 
 # AD Domain Controller Session
 $adCmdLets = 'Get-ADUser', 'Set-ADUser', 'Set-ADAccountPassword'
 $adSession = New-PSSession -ComputerName $DomainController -Credential $ADCredential
 Import-PSSession -Session $adSession -Module ActiveDirectory -CommandName $adCmdLets -AllowClobber
 
-# Variables
-$gamExe = '.\lib\gam-64\gam.exe'
+Get-ActiveADStudents | Select-InactiveADObj
 
-# Imported Functions
-. .\lib\Add-Log.ps1
-. .\lib\Invoke-SqlCommand.ps1 # Useful function for querying SQL and returning results
+# $allSISActiveIds = Invoke-SqlCommand @sqlParams
 
-function Get-RandomCharacters($length, $characters) {
- $random = 1..$length | ForEach-Object { Get-Random -Maximum $characters.length }
- $private:ofs = ''
- return [String]$characters[$random]
-}
-function New-RandomPw {
- $chars = 'ABCDEFGHKLMNOPRSTUVWXYZabcdefghiklmnoprstuvwxyz1234567890!$#%&*@'
- do { $pw = (Get-RandomCharacters -length 16 -characters $chars) }
- until ($pw -match '[A-Za-z\d!$#%&*@]') # Make sure minimum criteria met using regex p@ttern.
- $pw # Output random password
-}
+# 'Active AD Students: ' + ($allADStudents | Measure-Object).count
+# 'Aeries Active Records: ' + ($allSISActiveIds | Measure-Object).count
 
-# Processing
-$properties = 'AccountExpirationDate', 'EmployeeID', 'HomePage', 'info'
-$allStuParams = @{
- Filter     = { (homepage -like "*@*") -and (employeeID -like "*") }
- SearchBase = 'OU=Students,OU=Users,OU=Domain_Root,DC=chico,DC=usd'
- Properties = $properties
-}
+# Write-Verbose "Computing difference..."
+# $inactiveEmpIds = Compare-Object -ReferenceObject $allSISActiveIds -DifferenceObject $allADStudents -Property employeeID |
+# Where-Object { $_.SideIndicator -eq '=>' }
 
-$allADStudents = Get-ADUser @allStuParams |
-Where-Object { ($_.samaccountname -match "^\b[a-zA-Z][a-zA-Z]\d{5,6}\b$") -and ($_.employeeID -match "^\d{5,6}$") }
+# 'AD Accounts Needing deactivation: ' + ($inactiveEmpIds | Measure-Object).count
 
-$query = Get-Content -Path '.\sql\active-students.sql' -Raw
-$sqlParams = @{
- Server     = $SISServer
- Database   = $SISDatabase
- Credential = $SISCredential
- Query      = $query
-}
-$allSISActiveIds = Invoke-SqlCommand @sqlParams
+# foreach ( $empId in $inactiveEmpIds.employeeID ) {
+#  $user = $allADStudents.Where( { $_.employeeID -eq $empId })
+#  if ( !$user ) { continue } # Skip missing users
+#  $sam = $user.SamAccountName
+#  $guid = $user.ObjectGUID
+#  if ( $user.info ) {
+#   # BEGIN Skip if custom date set in User 'Info' Attrib via json format
+#   try {
+#    [datetime]$altExpireDate = Get-Date ($user.info | ConvertFrom-Json).keepUntil
+#    if ( (Get-Date) -le $altExpireDate ) {
+#     Add-Log info "$sam,Active until: $altExpireDate"
+#     # Read-Host 'LOOK!!!!!!!!!!!!!!!!===================================================='
+#     continue
+#    }
+#    else { Add-Log info "$sam,expired: $altExpireDate" }
+#   }
+#   catch { Add-Log warning "$sam,User.info missing date and/or json formating" }
+#  } # END Skip if custom date set in User 'Info' Attrib
+#  Add-Log disable $sam
+#  Set-ADUser -Identity $guid -Enabled $False -Whatif:$WhatIf # Disable the account
+#  Set-ADUser -Identity $guid -Replace @{UserAccountControl = 0x0202 } # Set uac to 514 to notify Bradford to stop access to network
 
-Add-Log info ("Active AD Students :" + $allADStudents.count)
-Add-Log info ("Aeries Active Records :" + $allSISActiveIds.count)
+#  Add-Log udpate ('{0}, AD account password set to random' -f $sam) -Whatif:$WhatIf
+#  $randomPW = ConvertTo-SecureString -String (New-RandomPassword) -AsPlainText -Force
+#  Set-ADAccountPassword -Identity $guid -NewPassword $randomPW -Confirm:$false -WhatIf:$WhatIf
 
-Write-Verbose "Computing difference..."
-$inactiveEmpIds = Compare-Object -ReferenceObject $allSISActiveIds -DifferenceObject $allADStudents -Property employeeID |
-Where-Object { $_.SideIndicator -eq '=>' }
-
-Add-Log info ("AD Accounts Needing deactivation :" + $inactiveEmpIds.count)
-
-foreach ( $empId in $inactiveEmpIds.employeeID ) {
- $user = $allADStudents.Where( { $_.employeeID -eq $empId })
- if ( !$user ) { continue } # Skip missing users
- $sam = $user.SamAccountName
- $guid = $user.ObjectGUID
- if ( $user.info ) {
-  # BEGIN Skip if custom date set in User 'Info' Attrib via json format
-  try {
-   [datetime]$altExpireDate = Get-Date ($user.info | ConvertFrom-Json).keepUntil
-   if ( (Get-Date) -le $altExpireDate ) {
-    Add-Log info "$sam,Active until: $altExpireDate"
-    # Read-Host 'LOOK!!!!!!!!!!!!!!!!===================================================='
-    continue
-   }
-   else { Add-Log info "$sam,expired: $altExpireDate" }
-  }
-  catch { Add-Log warning "$sam,User.info missing date and/or json formating" }
- } # END Skip if custom date set in User 'Info' Attrib
- Add-Log disable $sam
- Set-ADUser -Identity $guid -Enabled $False -Whatif:$WhatIf # Disable the account
- Set-ADUser -Identity $guid -Replace @{UserAccountControl = 0x0202 } # Set uac to 514 to notify Bradford to stop access to network
-
- Add-Log udpate ('{0}, AD account password set to random' -f $sam) -Whatif:$WhatIf
- $randomPW = ConvertTo-SecureString -String (New-RandomPw) -AsPlainText -Force
- Set-ADAccountPassword -Identity $guid -NewPassword $randomPW -Confirm:$false -WhatIf:$WhatIf
-
- # Suspend Gsuite Account
- if ($user.HomePage -and !$WhatIf) { (& $gamExe update user $user.HomePage suspended on) *>$null }
-}
+#  # Suspend Gsuite Account
+#  if ($user.HomePage -and !$WhatIf) { (& $gamExe update user $user.HomePage suspended on) *>$null }
+# }
 
 Write-Verbose "Tearing down sessions"
 Get-PSSession | Remove-PSSession -WhatIf:$false
