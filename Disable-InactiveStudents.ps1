@@ -47,21 +47,46 @@ param (
  [Parameter(Mandatory = $True)]
  [Alias('SISCred')]
  [System.Management.Automation.PSCredential]$SISCredential,
+ [Parameter(Mandatory = $True)]
+ [System.Management.Automation.PSCredential]$MailCredential,
+ [string[]]$MailTarget,
+ [string[]]$BccAddress,
  [Alias('wi')]
  [SWITCH]$WhatIf
 )
 
-# Variables
-$gamExe = '.\lib\gam-64\gam.exe'
-
-# Imported Functions
-. .\lib\Clear-SessionData.ps1
-. .\lib\Show-TestRun.ps1
-. .\lib\Load-Module.ps1
-. .\lib\New-RandomPassword.ps1
-
 # Script Functions
-
+function Format-HTML {
+ begin {
+  $baseHtml = Get-Content -Path .\html\return_chromebook_message.html -Raw
+ }
+ process {
+  $data = @(
+   $_.School
+   $_.SPermID
+   $_.LasstName
+   $_.FirstName
+   $_.Parentname
+   $_.ParentEMail
+   $_.Fatherworkphone
+   $_.Motherworkphone
+   $_.ParentportalEmail
+   $_.Barcode
+   $_.serial
+   $_.Code1
+   $_.Condition
+   $_.Comment
+   $_.IssuedDate
+   $_.Address
+  )
+  @{
+   html = $baseHtml -f $data
+   to   = $MailTarget
+   cred = $MailCredential
+   bcc  = $BccAddress
+  }
+ }
+}
 function Get-ActiveADStudents {
  $properties = 'AccountExpirationDate', 'EmployeeID', 'HomePage', 'info'
  $allStuParams = @{
@@ -70,8 +95,29 @@ function Get-ActiveADStudents {
   Properties = $properties
  }
 
- Get-ADUser @allStuParams |
- Where-Object { ($_.samaccountname -match "^\b[a-zA-Z][a-zA-Z]\d{5,6}\b$") -and ($_.employeeID -match "^\d{5,6}$") }
+ Get-ADUser @allStuParams | Where-Object {
+  $_.samaccountname -match "^\b[a-zA-Z][a-zA-Z]\d{5,6}\b$" -and
+  $_.employeeID -match "^\d{5,6}$" -and
+  $_.Enabled -eq $True
+ } | Sort-Object Surname
+}
+
+filter Get-AssignedChromeBookUsers {
+ $sqlParams = @{
+  Server     = $SISServer
+  Database   = $SISDatabase
+  Credential = $SISCredential
+ }
+ Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name)
+ $sql = (Get-Content -Path .\sql\student_return_cb.sq.sql -Raw) -f $_.employeeId
+ Invoke-SqlCmd @sqlParams -Query $sql
+}
+
+function Disable-ADObjects {
+ process {
+  Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name)
+  Set-ADUser -Identity $_.ObjectGUID -Enabled:$false -Confirm:$false -WhatIf:$WhatIf
+ }
 }
 
 function Select-InactiveADObj {
@@ -92,59 +138,75 @@ function Select-InactiveADObj {
  }
 }
 
-# Processing
+function Send-AlertEmail {
+ process {
+  $mailParams = @{
+   To         = $_.to
+   From       = $EmailCredential.Username
+   Subject    = $_.subject
+   bodyAsHTML = $true
+   Body       = $_.body
+   SMTPServer = 'smtp.office365.com'
+   Cred       = $EmailCredential
+   UseSSL     = $True
+   Port       = 587
+  }
+  if ($BccAddress) { $mailParams += @{Bcc = $BccAddress } }
 
-# CLS;$error.clear() # Clear Screen and $error
-Get-PSSession | Remove-PSSession -WhatIf:$false
+  if (-not$WhatIf) { Send-MailMessage @mailParams }
+  Write-Host ('{0},{1},{2}' -f $MyInvocation.MyCommand.name, ($_.to -join ','), $_.subject)
+ }
+}
+
+function Set-RandomPassword {
+ Process {
+  Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name)
+  $randomPW = ConvertTo-SecureString -String (New-RandomPassword) -AsPlainText -Force
+  Set-ADAccountPassword -Identity $_.ObjectGUID -NewPassword $randomPW -Confirm:$false -WhatIf:$WhatIf
+ }
+}
+
+function Set-GsuiteSuspended {
+ process {
+  Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name)
+  if ($_.HomePage -and -not$WhatIf) { (& $gamExe update user $_.HomePage suspended on) *>$null }
+ }
+}
+
+function Set-UserAccountControl {
+ process {
+  Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name)
+  # Set uac to 514 to notify Bradford to stop access to network
+  Set-ADUser -Identity $_.ObjectGUID -Replace @{UserAccountControl = 0x0202 } -Confirm:$false -WhatIf:$WhatIf
+ }
+}
+
+# Variables
+$gamExe = '.\lib\gam-64\gam.exe'
+
+# Imported Functions
+. .\lib\Clear-SessionData.ps1
+. .\lib\Load-Module.ps1
+. .\lib\New-RandomPassword.ps1
+. .\lib\Show-TestRun.ps1
+
+Show-TestRun
+
+Clear-SessionData
+
 'SQLServer' | Load-Module
+
+# Processing
 
 # AD Domain Controller Session
 $adCmdLets = 'Get-ADUser', 'Set-ADUser', 'Set-ADAccountPassword'
 $adSession = New-PSSession -ComputerName $DomainController -Credential $ADCredential
 Import-PSSession -Session $adSession -Module ActiveDirectory -CommandName $adCmdLets -AllowClobber
 
-Get-ActiveADStudents | Select-InactiveADObj
+# Get-ActiveADStudents | Select name | ft
+Get-ActiveADStudents | Select-InactiveADObj | Disable-ADObjects 
+# | Set-UserAccountControl | Set-RandomPassword
+# | Set-GsuiteSuspended | Get-AssignedChromeBookUsers | Send-AlertEmail
 
-# $allSISActiveIds = Invoke-SqlCommand @sqlParams
-
-# 'Active AD Students: ' + ($allADStudents | Measure-Object).count
-# 'Aeries Active Records: ' + ($allSISActiveIds | Measure-Object).count
-
-# Write-Verbose "Computing difference..."
-# $inactiveEmpIds = Compare-Object -ReferenceObject $allSISActiveIds -DifferenceObject $allADStudents -Property employeeID |
-# Where-Object { $_.SideIndicator -eq '=>' }
-
-# 'AD Accounts Needing deactivation: ' + ($inactiveEmpIds | Measure-Object).count
-
-# foreach ( $empId in $inactiveEmpIds.employeeID ) {
-#  $user = $allADStudents.Where( { $_.employeeID -eq $empId })
-#  if ( !$user ) { continue } # Skip missing users
-#  $sam = $user.SamAccountName
-#  $guid = $user.ObjectGUID
-#  if ( $user.info ) {
-#   # BEGIN Skip if custom date set in User 'Info' Attrib via json format
-#   try {
-#    [datetime]$altExpireDate = Get-Date ($user.info | ConvertFrom-Json).keepUntil
-#    if ( (Get-Date) -le $altExpireDate ) {
-#     Add-Log info "$sam,Active until: $altExpireDate"
-#     # Read-Host 'LOOK!!!!!!!!!!!!!!!!===================================================='
-#     continue
-#    }
-#    else { Add-Log info "$sam,expired: $altExpireDate" }
-#   }
-#   catch { Add-Log warning "$sam,User.info missing date and/or json formating" }
-#  } # END Skip if custom date set in User 'Info' Attrib
-#  Add-Log disable $sam
-#  Set-ADUser -Identity $guid -Enabled $False -Whatif:$WhatIf # Disable the account
-#  Set-ADUser -Identity $guid -Replace @{UserAccountControl = 0x0202 } # Set uac to 514 to notify Bradford to stop access to network
-
-#  Add-Log udpate ('{0}, AD account password set to random' -f $sam) -Whatif:$WhatIf
-#  $randomPW = ConvertTo-SecureString -String (New-RandomPassword) -AsPlainText -Force
-#  Set-ADAccountPassword -Identity $guid -NewPassword $randomPW -Confirm:$false -WhatIf:$WhatIf
-
-#  # Suspend Gsuite Account
-#  if ($user.HomePage -and !$WhatIf) { (& $gamExe update user $user.HomePage suspended on) *>$null }
-# }
-
-Write-Verbose "Tearing down sessions"
-Get-PSSession | Remove-PSSession -WhatIf:$false
+Clear-SessionData
+Show-TestRun
