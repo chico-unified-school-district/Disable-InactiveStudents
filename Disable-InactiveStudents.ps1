@@ -56,6 +56,17 @@ param (
 )
 
 # Script Functions
+function Format-ChromebookResults {
+ process {
+  Write-Verbose ( $_ | Out-String )
+  Write-Host ('{0},{1}' -f $_.PermID, $MyInvocation.MyCommand.name)
+  $parentPortalEmails += @($_.ParentportalEmail)
+  $parentPortalEmails
+  $parentEmails += @($_.ParentEmail)
+  $parentPortalEmails
+
+ }
+}
 function Format-HTML {
  begin {
   $baseHtml = Get-Content -Path .\html\return_chromebook_message.html -Raw
@@ -64,7 +75,7 @@ function Format-HTML {
   $data = @(
    $_.School
    $_.SPermID
-   $_.LasstName
+   $_.LastName
    $_.FirstName
    $_.Parentname
    $_.ParentEMail
@@ -87,8 +98,9 @@ function Format-HTML {
   }
  }
 }
-function Get-ActiveADStudents {
- $properties = 'AccountExpirationDate', 'EmployeeID', 'HomePage', 'info'
+function Get-ActiveAD {
+ Write-Host $MyInvocation.MyCommand.name
+ $properties = 'AccountExpirationDate', 'EmployeeID', 'HomePage', 'info', 'title'
  $allStuParams = @{
   Filter     = { (homepage -like "*@*") -and (employeeID -like "*") }
   SearchBase = 'OU=Students,OU=Users,OU=Domain_Root,DC=chico,DC=usd'
@@ -98,8 +110,27 @@ function Get-ActiveADStudents {
  Get-ADUser @allStuParams | Where-Object {
   $_.samaccountname -match "^\b[a-zA-Z][a-zA-Z]\d{5,6}\b$" -and
   $_.employeeID -match "^\d{5,6}$" -and
+  $_.title -notmatch 'test' -and
+  $_.AccountExpirationDate -isnot [datetime] -and
   $_.Enabled -eq $True
- } | Sort-Object Surname
+ } | Sort-Object employeeId
+}
+
+function Get-ActiveAeries {
+ Write-Host $MyInvocation.MyCommand.name
+ $sqlParams = @{
+  Server     = $SISServer
+  Database   = $SISDatabase
+  Credential = $SISCredential
+ }
+ $query = Get-Content -Path '.\sql\active-students.sql' -Raw
+ Invoke-SqlCmd @sqlParams -Query $query | Sort-Object employeeId
+}
+
+function Get-InactiveIDs ($activeAD, $activeAeries) {
+ Write-Host $MyInvocation.MyCommand.name
+ Compare-Object -ReferenceObject $activeAeries -DifferenceObject $activeAD -Property employeeId |
+ Where-Object { $_.SideIndicator -eq '=>' }
 }
 
 filter Get-AssignedChromeBookUsers {
@@ -115,46 +146,39 @@ filter Get-AssignedChromeBookUsers {
 
 function Disable-ADObjects {
  process {
+  Write-Debug ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name)
   Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name)
   Set-ADUser -Identity $_.ObjectGUID -Enabled:$false -Confirm:$false -WhatIf:$WhatIf
+  $_
  }
 }
 
-function Select-InactiveADObj {
- begin {
-  $sqlParams = @{
-   Server     = $SISServer
-   Database   = $SISDatabase
-   Credential = $SISCredential
-  }
-  $query = Get-Content -Path '.\sql\active-students.sql' -Raw
-  $aeriesActive = Invoke-SqlCmd @sqlParams -Query $query
- }
- process {
-  if ($aeriesActive.employeeID -notcontains $_.employeeId) {
-   Write-Host "$($_.employeeId), Inactive student found"
-   $_
-  }
+function Get-InactiveADObj ($activeAD, $inactiveIDs) {
+ foreach ($id in $inactiveIDs.employeeId) {
+  $activeAD.Where({ $_.employeeId -eq $id })
  }
 }
 
 function Send-AlertEmail {
+ begin {
+  $subject = 'Exiting Student Chromebook Return'
+ }
  process {
   $mailParams = @{
    To         = $_.to
-   From       = $EmailCredential.Username
-   Subject    = $_.subject
+   From       = $_.cred.Username
+   Subject    = $subject
    bodyAsHTML = $true
-   Body       = $_.body
+   Body       = $_.html
    SMTPServer = 'smtp.office365.com'
-   Cred       = $EmailCredential
+   Cred       = $cred
    UseSSL     = $True
    Port       = 587
   }
-  if ($BccAddress) { $mailParams += @{Bcc = $BccAddress } }
-
+  if ($_.bcc) { $mailParams += @{Bcc = $_.bcc } }
+  Write-Verbose ($_.html | Out-String)
   if (-not$WhatIf) { Send-MailMessage @mailParams }
-  Write-Host ('{0},{1},{2}' -f $MyInvocation.MyCommand.name, ($_.to -join ','), $_.subject)
+  Write-Host ('{0},{1},{2}' -f $MyInvocation.MyCommand.name, ($_.to -join ','), $subject)
  }
 }
 
@@ -163,6 +187,7 @@ function Set-RandomPassword {
   Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name)
   $randomPW = ConvertTo-SecureString -String (New-RandomPassword) -AsPlainText -Force
   Set-ADAccountPassword -Identity $_.ObjectGUID -NewPassword $randomPW -Confirm:$false -WhatIf:$WhatIf
+  $_
  }
 }
 
@@ -170,14 +195,16 @@ function Set-GsuiteSuspended {
  process {
   Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name)
   if ($_.HomePage -and -not$WhatIf) { (& $gamExe update user $_.HomePage suspended on) *>$null }
+  $_
  }
 }
 
 function Set-UserAccountControl {
  process {
   Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name)
-  # Set uac to 514 to notify Bradford to stop access to network
+  # Set uac to 514 (0x0202) to notify Bradford to stop access to network
   Set-ADUser -Identity $_.ObjectGUID -Replace @{UserAccountControl = 0x0202 } -Confirm:$false -WhatIf:$WhatIf
+  $_
  }
 }
 
@@ -203,10 +230,12 @@ $adCmdLets = 'Get-ADUser', 'Set-ADUser', 'Set-ADAccountPassword'
 $adSession = New-PSSession -ComputerName $DomainController -Credential $ADCredential
 Import-PSSession -Session $adSession -Module ActiveDirectory -CommandName $adCmdLets -AllowClobber
 
-# Get-ActiveADStudents | Select name | ft
-Get-ActiveADStudents | Select-InactiveADObj | Disable-ADObjects 
-# | Set-UserAccountControl | Set-RandomPassword
-# | Set-GsuiteSuspended | Get-AssignedChromeBookUsers | Send-AlertEmail
+$activeAD = Get-ActiveAD
+$activeAeries = Get-ActiveAeries
+$inactiveIDs = Get-InactiveIDs -activeAD $activeAD -activeAeries $activeAeries
+Get-InactiveADObj -activeAD $activeAD -inactiveIDs $inactiveIDs | Disable-ADObjects | Set-UserAccountControl | 
+Set-RandomPassword | Set-GsuiteSuspended | Get-AssignedChromeBookUsers | Format-ChromebookResults
+# Format-HTML | Send-AlertEmail 
 
 Clear-SessionData
 Show-TestRun
