@@ -56,48 +56,71 @@ param (
 )
 
 # Script Functions
-function Format-ChromebookResults {
- process {
-  Write-Verbose ( $_ | Out-String )
-  Write-Host ('{0},{1}' -f $_.PermID, $MyInvocation.MyCommand.name)
-  $parentPortalEmails += @($_.ParentportalEmail)
-  $parentPortalEmails
-  $parentEmails += @($_.ParentEmail)
-  $parentPortalEmails
+# function Format-HTML {
+#  begin {
+#   $baseHtml = Get-Content -Path .\html\return_chromebook_message.html -Raw
+#  }
+#  process {
+#   # TODO format html
+#   $data = @(
+#    $_.School
+#    $_.SPermID
+#    $_.LastName
+#    $_.FirstName
+#    $_.Parentname
+#    $_.ParentEMail
+#    $_.Fatherworkphone
+#    $_.Motherworkphone
+#    $_.ParentportalEmail
+#    $_.Barcode
+#    $_.serial
+#    $_.Code1
+#    $_.Condition
+#    $_.Comment
+#    $_.IssuedDate
+#    $_.Address
+#   )
+#   @{
+#    html = $baseHtml -f $data
+#    to   = $MailTarget
+#    cred = $MailCredential
+#    bcc  = $BccAddress
+#   }
+#  }
+# }
 
- }
-}
-function Format-HTML {
+function Format-Html {
  begin {
   $baseHtml = Get-Content -Path .\html\return_chromebook_message.html -Raw
+  $columns = @(
+   'Sch'
+   'PermID'
+   'LastName'
+   'FirstName'
+   'Parentname'
+   'ParentEMail'
+   'Fatherworkphone'
+   'Motherworkphone'
+   'ParentportalEmail'
+   'Barcode'
+   'Serial'
+   'Code1'
+   'Condition'
+   'Comment'
+   'IssuedDate'
+  )
  }
  process {
-  $data = @(
-   $_.School
-   $_.SPermID
-   $_.LastName
-   $_.FirstName
-   $_.Parentname
-   $_.ParentEMail
-   $_.Fatherworkphone
-   $_.Motherworkphone
-   $_.ParentportalEmail
-   $_.Barcode
-   $_.serial
-   $_.Code1
-   $_.Condition
-   $_.Comment
-   $_.IssuedDate
-   $_.Address
-  )
+  $data = $_.group | Select-Object -Property $columns | ConvertTo-Html -Fragment
   @{
-   html = $baseHtml -f $data
+   html = $baseHtml -f ($data | Out-String)
    to   = $MailTarget
    cred = $MailCredential
    bcc  = $BccAddress
   }
  }
 }
+
 function Get-ActiveAD {
  Write-Host $MyInvocation.MyCommand.name
  $properties = 'AccountExpirationDate', 'EmployeeID', 'HomePage', 'info', 'title'
@@ -141,7 +164,7 @@ filter Get-AssignedChromeBookUsers {
  }
  Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name)
  $sql = (Get-Content -Path .\sql\student_return_cb.sq.sql -Raw) -f $_.employeeId
- Invoke-SqlCmd @sqlParams -Query $sql
+ Invoke-SqlCmd @sqlParams -Query $sql | Group-Object
 }
 
 function Disable-ADObjects {
@@ -192,6 +215,7 @@ function Set-RandomPassword {
 }
 
 function Set-GsuiteSuspended {
+ begin { $gamExe = '.\lib\gam-64\gam.exe' }
  process {
   Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name)
   if ($_.HomePage -and -not$WhatIf) { (& $gamExe update user $_.HomePage suspended on) *>$null }
@@ -208,9 +232,7 @@ function Set-UserAccountControl {
  }
 }
 
-# Variables
-$gamExe = '.\lib\gam-64\gam.exe'
-
+# =========================================================================================
 # Imported Functions
 . .\lib\Clear-SessionData.ps1
 . .\lib\Load-Module.ps1
@@ -221,9 +243,8 @@ Show-TestRun
 
 Clear-SessionData
 
-'SQLServer' | Load-Module
-
 # Processing
+'SQLServer' | Load-Module
 
 # AD Domain Controller Session
 $adCmdLets = 'Get-ADUser', 'Set-ADUser', 'Set-ADAccountPassword'
@@ -234,8 +255,7 @@ $activeAD = Get-ActiveAD
 $activeAeries = Get-ActiveAeries
 $inactiveIDs = Get-InactiveIDs -activeAD $activeAD -activeAeries $activeAeries
 Get-InactiveADObj -activeAD $activeAD -inactiveIDs $inactiveIDs | Disable-ADObjects | Set-UserAccountControl | 
-Set-RandomPassword | Set-GsuiteSuspended | Get-AssignedChromeBookUsers | Format-ChromebookResults
-# Format-HTML | Send-AlertEmail 
+Set-RandomPassword | Set-GsuiteSuspended | Get-AssignedChromeBookUsers | Format-Html | Send-AlertEmail
 
 Clear-SessionData
 Show-TestRun

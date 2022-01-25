@@ -1,4 +1,4 @@
-SELECT distinct STU.SC AS School,
+SELECT distinct STU.SC AS Sch,
 STU.ID AS PermID,
 STU.LN AS LastName,
 STU.FN AS FirstName,
@@ -12,7 +12,7 @@ DRI.SR AS serial,
  [DRA].[CD] AS [Code1],
 [DRA].[CC] AS [Condition],
 [DRA].[CO] AS [Comment],
-DRA.DT AS [IssuedDate],
+CONVERT(varchar,DRA.DT,23) AS [IssuedDate],
 STU.AD+', '+ STU.CY+', '+  STU.ST+' '+STU.ZC  AS [Address]
 FROM STU INNER JOIN DRA ON STU.ID = DRA.ID AND DRA.ST = 'S' AND DRA.DEL = 0
 INNER JOIN DRT ON DRA.RID = DRT.RID AND DRT.DEL = 0
