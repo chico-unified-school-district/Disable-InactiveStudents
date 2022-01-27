@@ -112,6 +112,7 @@ function Format-Html {
  }
  process {
   $data = $_.group | Select-Object -Property $columns | ConvertTo-Html -Fragment
+  # $html = $html.Replace()
   @{
    html = $baseHtml -f ($data | Out-String)
    to   = $MailTarget
@@ -123,7 +124,8 @@ function Format-Html {
 
 function Get-ActiveAD {
  Write-Host $MyInvocation.MyCommand.name
- $properties = 'AccountExpirationDate', 'EmployeeID', 'HomePage', 'info', 'title'
+ # 'gecos' stores Aeries STU.GR (grade level)
+ $properties = 'AccountExpirationDate', 'EmployeeID', 'HomePage', 'info', 'title', 'gecos'
  $allStuParams = @{
   Filter     = { (homepage -like "*@*") -and (employeeID -like "*") }
   SearchBase = 'OU=Students,OU=Users,OU=Domain_Root,DC=chico,DC=usd'
@@ -167,11 +169,48 @@ filter Get-AssignedChromeBookUsers {
  Invoke-SqlCmd @sqlParams -Query $sql | Group-Object
 }
 
+filter Get-SecondaryStudents {
+ $data = $_.group[0]
+ if (($data.Grade) -and ([int]$data.Grade -is [int])) {
+  if ([int]$data.Grade -ge 6) {
+   Write-Host ('{0},{1}' -f $data.Mail, $MyInvocation.MyCommand.name)
+   $_
+  }
+ }
+}
+
 function Disable-ADObjects {
  process {
   Write-Debug ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name)
   Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name)
   Set-ADUser -Identity $_.ObjectGUID -Enabled:$false -Confirm:$false -WhatIf:$WhatIf
+  $_
+ }
+}
+
+function Disable-Chromebooks {
+ begin {
+  $gamExe = '.\lib\gam-64\gam.exe'
+  $crosFields = "deviceId,status,serialNumber"
+ }
+ process {
+  $data = $_.group[0]
+  Write-Host ('{0},{1}' -f $data.mail, $MyInvocation.MyCommand.name)
+  $sn = $data.serialNumber
+  Write-Host ('{0},{1}' -f $sn, $MyInvocation.MyCommand.name)
+  # *>$null suppresses noisy output
+ ($crosDev = & $gamExe print cros query "id: $sn" fields $crosFields | ConvertFrom-CSV) *>$null
+  if ($crosDev) {
+   $id = $crosDev.deviceId
+   if ($crosDev.status -eq "ACTIVE") {
+    # If cros device set to 'active' then disable
+    Write-Host "& $gamExe update cros $id action disable *>$null"
+    if (-not$WhatIf) { 
+     & $gamExe update cros $id action disable *>$null 
+    }
+   }
+   else { Write-Verbose "$sn,Skipping. Already Disabled" }
+  }
   $_
  }
 }
@@ -254,8 +293,8 @@ Import-PSSession -Session $adSession -Module ActiveDirectory -CommandName $adCmd
 $activeAD = Get-ActiveAD
 $activeAeries = Get-ActiveAeries
 $inactiveIDs = Get-InactiveIDs -activeAD $activeAD -activeAeries $activeAeries
-Get-InactiveADObj -activeAD $activeAD -inactiveIDs $inactiveIDs | Disable-ADObjects | Set-UserAccountControl | 
-Set-RandomPassword | Set-GsuiteSuspended | Get-AssignedChromeBookUsers | Format-Html | Send-AlertEmail
+Get-InactiveADObj -activeAD $activeAD -inactiveIDs $inactiveIDs | Disable-ADObjects | Set-UserAccountControl |
+Set-RandomPassword | Set-GsuiteSuspended | Get-AssignedChromeBookUsers | Disable-Chromebooks | Get-SecondaryStudents | Format-Html | Send-AlertEmail
 
 Clear-SessionData
 Show-TestRun
