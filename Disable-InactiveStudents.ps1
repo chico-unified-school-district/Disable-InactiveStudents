@@ -91,34 +91,42 @@ param (
 
 function Format-Html {
  begin {
-  $baseHtml = Get-Content -Path .\html\return_chromebook_message.html -Raw
-  $columns = @(
-   'Sch'
-   'PermID'
-   'LastName'
-   'FirstName'
-   'Parentname'
-   'ParentEMail'
-   'Fatherworkphone'
-   'Motherworkphone'
-   'ParentportalEmail'
-   'Barcode'
-   'Serial'
-   'Code1'
-   'Condition'
-   'Comment'
-   'IssuedDate'
-  )
+  $html = Get-Content -Path .\html\return_chromebook_message_2.html -Raw
  }
  process {
-  $data = $_.group | Select-Object -Property $columns | ConvertTo-Html -Fragment
-  # $html = $html.Replace()
+  $data = $_.group[0]
+  Write-Host ('{0},{1}' -f $data.mail, $MyInvocation.MyCommand.name)
+  $parentEmails = $_ | Format-ParentEmails
+  $msg = $html.Replace('{email}', $parentEmails)
+  $name = $data.FirstName + ' ' + $data.LastName
+  $msg = $msg.Replace('{student}', $name)
+  $msg = $msg.Replace('{serial}', $data.SerialNumber)
   @{
-   html = $baseHtml -f ($data | Out-String)
+   html = $msg
    to   = $MailTarget
    cred = $MailCredential
    bcc  = $BccAddress
   }
+ }
+}
+
+function Format-ParentEmails {
+ process {
+  # Build a string containing any parent emails
+  Write-Host ('{0},{1}' -f $_.group[0].mail, $MyInvocation.MyCommand.name)
+  foreach ($obj in $_.group) {
+   if ( -not([DBNull]::Value).Equals($obj.ParentEmail) -and ($null -ne $obj.ParentEmail) -and ($obj.ParentEmail -like '*@*')) {
+    if ($parentEmailList -notmatch $obj.ParentEmail) {
+     $parentEmailList = $obj.ParentEmail, $parentEmailList -join ', '
+    }
+   }
+   if ( -not([DBNull]::Value).Equals($obj.ParentPortalEmail) ) {
+    if ($parentEmailList -notmatch $obj.ParentPortalEmail) {
+     $parentEmailList = $obj.ParentPortalEmail, $parentEmailList -join ', '
+    }
+   }
+  }
+  $parentEmailList.TrimEnd(', ')
  }
 }
 
@@ -173,9 +181,15 @@ filter Get-SecondaryStudents {
  $data = $_.group[0]
  if (($data.Grade) -and ([int]$data.Grade -is [int])) {
   if ([int]$data.Grade -ge 6) {
-   Write-Host ('{0},{1}' -f $data.Mail, $MyInvocation.MyCommand.name)
+   Write-Host ('{0},{1},Grade: {2}' -f $data.Mail, $MyInvocation.MyCommand.name, $data.Grade)
    $_
   }
+  else {
+   Write-Host ('{0},{1},Grade: {2},Primary student detected. Skipping.' -f $data.Mail, $MyInvocation.MyCommand.name, $data.Grade) -ForegroundColor Orange
+  }
+ }
+ else {
+  Write-Warning ('{0},{1},Grade: {2},Grade error.' -f $data.Mail, $MyInvocation.MyCommand.name, $data.Grade)
  }
 }
 
