@@ -55,65 +55,32 @@ param (
  [SWITCH]$WhatIf
 )
 
-# Script Functions
-# function Format-HTML {
-#  begin {
-#   $baseHtml = Get-Content -Path .\html\return_chromebook_message.html -Raw
-#  }
-#  process {
-#   # TODO format html
-#   $data = @(
-#    $_.School
-#    $_.SPermID
-#    $_.LastName
-#    $_.FirstName
-#    $_.Parentname
-#    $_.ParentEMail
-#    $_.Fatherworkphone
-#    $_.Motherworkphone
-#    $_.ParentportalEmail
-#    $_.Barcode
-#    $_.serial
-#    $_.Code1
-#    $_.Condition
-#    $_.Comment
-#    $_.IssuedDate
-#    $_.Address
-#   )
-#   @{
-#    html = $baseHtml -f $data
-#    to   = $MailTarget
-#    cred = $MailCredential
-#    bcc  = $BccAddress
-#   }
-#  }
-# }
-
+# Script Functions =========================================================================
 function Format-Html {
  begin {
   $html = Get-Content -Path .\html\return_chromebook_message_2.html -Raw
  }
  process {
   $data = $_.group[0]
-  Write-Host ('{0},{1}' -f $data.mail, $MyInvocation.MyCommand.name)
-  $parentEmails = $_ | Format-ParentEmails
+  Write-Host ('{0},{1}' -f $data.mail, $MyInvocation.MyCommand.name) -ForegroundColor DarkCyan
+  $parentEmails = $_ | Format-ParentEmailAddresses
   $msg = $html.Replace('{email}', $parentEmails)
-  $name = $data.FirstName + ' ' + $data.LastName
-  $msg = $msg.Replace('{student}', $name)
-  $msg = $msg.Replace('{serial}', $data.SerialNumber)
-  @{
-   html = $msg
-   to   = $MailTarget
-   cred = $MailCredential
-   bcc  = $BccAddress
-  }
+  $msg = $msg.Replace('{student}', ( $data.FirstName + ' ' + $data.LastName))
+  $msg = $msg.Replace('{barcode}', $data.Barcode)
+  # @{
+  #  html = $msg
+  #  to   = $MailTarget
+  #  cred = $MailCredential
+  #  bcc  = $BccAddress
+  # }
+  $msg
  }
 }
 
-function Format-ParentEmails {
+function Format-ParentEmailAddresses {
  process {
   # Build a string containing any parent emails
-  Write-Host ('{0},{1}' -f $_.group[0].mail, $MyInvocation.MyCommand.name)
+  Write-Host ('{0},{1}' -f $_.group[0].mail, $MyInvocation.MyCommand.name) -ForegroundColor DarkCyan
   foreach ($obj in $_.group) {
    if ( -not([DBNull]::Value).Equals($obj.ParentEmail) -and ($null -ne $obj.ParentEmail) -and ($obj.ParentEmail -like '*@*')) {
     if ($parentEmailList -notmatch $obj.ParentEmail) {
@@ -160,6 +127,12 @@ function Get-ActiveAeries {
  Invoke-SqlCmd @sqlParams -Query $query | Sort-Object employeeId
 }
 
+function Get-InactiveADObj ($activeAD, $inactiveIDs) {
+ foreach ($id in $inactiveIDs.employeeId) {
+  $activeAD.Where({ $_.employeeId -eq $id })
+ }
+}
+
 function Get-InactiveIDs ($activeAD, $activeAeries) {
  Write-Host $MyInvocation.MyCommand.name
  Compare-Object -ReferenceObject $activeAeries -DifferenceObject $activeAD -Property employeeId |
@@ -172,7 +145,7 @@ filter Get-AssignedChromeBookUsers {
   Database   = $SISDatabase
   Credential = $SISCredential
  }
- Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name)
+ Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name) -ForegroundColor DarkCyan
  $sql = (Get-Content -Path .\sql\student_return_cb.sq.sql -Raw) -f $_.employeeId
  Invoke-SqlCmd @sqlParams -Query $sql | Group-Object
 }
@@ -185,7 +158,7 @@ filter Get-SecondaryStudents {
    $_
   }
   else {
-   Write-Host ('{0},{1},Grade: {2},Primary student detected. Skipping.' -f $data.Mail, $MyInvocation.MyCommand.name, $data.Grade) -ForegroundColor Orange
+   Write-Host ('{0},{1},Grade: {2},Primary student detected. Skipping.' -f $data.Mail, $MyInvocation.MyCommand.name, $data.Grade) -ForegroundColor Yellow
   }
  }
  else {
@@ -196,71 +169,96 @@ filter Get-SecondaryStudents {
 function Disable-ADObjects {
  process {
   Write-Debug ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name)
-  Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name)
+  Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name) -ForegroundColor DarkCyan
   Set-ADUser -Identity $_.ObjectGUID -Enabled:$false -Confirm:$false -WhatIf:$WhatIf
   $_
  }
 }
 
-function Disable-Chromebooks {
+function Update-Chromebooks {
  begin {
   $gamExe = '.\lib\gam-64\gam.exe'
-  $crosFields = "deviceId,status,serialNumber"
+  $crosFields = 'serialNumber,orgUnitPath,deviceId,status'
  }
  process {
   $data = $_.group[0]
-  Write-Host ('{0},{1}' -f $data.mail, $MyInvocation.MyCommand.name)
+  Write-Host ('{0},{1}' -f $data.mail, $MyInvocation.MyCommand.name) -ForegroundColor DarkCyan
   $sn = $data.serialNumber
-  Write-Host ('{0},{1}' -f $sn, $MyInvocation.MyCommand.name)
-  # *>$null suppresses noisy output
+  Write-Host ('{0},{1}' -f $sn, $MyInvocation.MyCommand.name) -ForegroundColor DarkCyan
+  # ' *>$null suppresses noisy output '
  ($crosDev = & $gamExe print cros query "id: $sn" fields $crosFields | ConvertFrom-CSV) *>$null
   if ($crosDev) {
-   $id = $crosDev.deviceId
-   if ($crosDev.status -eq "ACTIVE") {
-    # If cros device set to 'active' then disable
-    Write-Host "& $gamExe update cros $id action disable *>$null"
-    if (-not$WhatIf) { 
-     & $gamExe update cros $id action disable *>$null 
-    }
-   }
-   else { Write-Verbose "$sn,Skipping. Already Disabled" }
+   $crosDev | Set-ChromebookOU
+   $crosDev | Disable-Chromebook
+   $_
   }
-  $_
  }
 }
 
-function Get-InactiveADObj ($activeAD, $inactiveIDs) {
- foreach ($id in $inactiveIDs.employeeId) {
-  $activeAD.Where({ $_.employeeId -eq $id })
+function Set-ChromebookOU {
+ begin {
+  $targOu = '/Chromebooks/Missing'
+ }
+ process {
+  $id = $_.deviceId
+  if ($_.orgUnitPath -notmatch $targOu) {
+   Write-Host ('{0},{1}' -f $_.deviceId, $MyInvocation.MyCommand.name) -ForegroundColor DarkCyan
+   Write-Host "& $gamExe update cros $id ou /Chromebooks/Missing *>$null"
+   if (-not$WhatIf) {
+    & $gamExe update cros $id ou $targOu *>$null
+   }
+  }
+  else { Write-Verbose "$id,Skipping. OrgUnitPath already $targOu" }
+ }
+}
+
+function Disable-Chromebook {
+ process {
+  $id = $_.deviceId
+  if ($crosDev.status -eq "ACTIVE") {
+   Write-Host ('{0},{1}' -f $_.deviceId, $MyInvocation.MyCommand.name) -ForegroundColor DarkCyan
+   Write-Host "& $gamExe update cros $id action disable *>$null"
+   if (-not$WhatIf) {
+    & $gamExe update cros $id action disable *>$null
+   }
+  }
+  else { Write-Verbose "$id,Skipping. Status already `'Disabled`'" }
  }
 }
 
 function Send-AlertEmail {
  begin {
   $subject = 'Exiting Student Chromebook Return'
+  $i = 0
  }
  process {
+  # Write-Debug ( $mailParams | Out-String )
+  Write-Debug ('{0},{1}' -f ($MailTarget -join ','), $MyInvocation.MyCommand.name)
   $mailParams = @{
-   To         = $_.to
-   From       = $_.cred.Username
+   To         = $MailTarget
+   From       = $MailCredential.Username
    Subject    = $subject
    bodyAsHTML = $true
-   Body       = $_.html
+   Body       = $_
    SMTPServer = 'smtp.office365.com'
-   Cred       = $cred
+   Cred       = $MailCredential
    UseSSL     = $True
    Port       = 587
   }
-  if ($_.bcc) { $mailParams += @{Bcc = $_.bcc } }
-  Write-Verbose ($_.html | Out-String)
+  if ($BccAddress) { $mailParams += @{Bcc = $BccAddress } }
+  Write-Verbose ($_ | Out-String)
+  Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.name, ($MailTarget -join ','))
   if (-not$WhatIf) { Send-MailMessage @mailParams }
-  Write-Host ('{0},{1},{2}' -f $MyInvocation.MyCommand.name, ($_.to -join ','), $subject)
+  $i++
+ }
+ end {
+  Write-Host ('Emails sent: {0}' -f $i) -ForegroundColor DarkGreen
  }
 }
 
 function Set-RandomPassword {
  Process {
-  Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name)
+  Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name) -ForegroundColor DarkCyan
   $randomPW = ConvertTo-SecureString -String (New-RandomPassword) -AsPlainText -Force
   Set-ADAccountPassword -Identity $_.ObjectGUID -NewPassword $randomPW -Confirm:$false -WhatIf:$WhatIf
   $_
@@ -270,7 +268,7 @@ function Set-RandomPassword {
 function Set-GsuiteSuspended {
  begin { $gamExe = '.\lib\gam-64\gam.exe' }
  process {
-  Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name)
+  Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name) -ForegroundColor DarkCyan
   if ($_.HomePage -and -not$WhatIf) { (& $gamExe update user $_.HomePage suspended on) *>$null }
   $_
  }
@@ -278,7 +276,7 @@ function Set-GsuiteSuspended {
 
 function Set-UserAccountControl {
  process {
-  Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name)
+  Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name) -ForegroundColor DarkCyan
   # Set uac to 514 (0x0202) to notify Bradford to stop access to network
   Set-ADUser -Identity $_.ObjectGUID -Replace @{UserAccountControl = 0x0202 } -Confirm:$false -WhatIf:$WhatIf
   $_
@@ -292,11 +290,10 @@ function Set-UserAccountControl {
 . .\lib\New-RandomPassword.ps1
 . .\lib\Show-TestRun.ps1
 
+# Processing
 Show-TestRun
-
 Clear-SessionData
 
-# Processing
 'SQLServer' | Load-Module
 
 # AD Domain Controller Session
@@ -308,7 +305,10 @@ $activeAD = Get-ActiveAD
 $activeAeries = Get-ActiveAeries
 $inactiveIDs = Get-InactiveIDs -activeAD $activeAD -activeAeries $activeAeries
 Get-InactiveADObj -activeAD $activeAD -inactiveIDs $inactiveIDs | Disable-ADObjects | Set-UserAccountControl |
-Set-RandomPassword | Set-GsuiteSuspended | Get-AssignedChromeBookUsers | Disable-Chromebooks | Get-SecondaryStudents | Format-Html | Send-AlertEmail
+Set-RandomPassword | Set-GsuiteSuspended | Get-AssignedChromeBookUsers | Update-Chromebooks | Get-SecondaryStudents | Format-Html | Send-AlertEmail
+
+# Get-InactiveADObj -activeAD $activeAD -inactiveIDs $inactiveIDs |
+# Get-AssignedChromeBookUsers | Get-SecondaryStudents | Format-Html | Send-AlertEmail
 
 Clear-SessionData
 Show-TestRun
