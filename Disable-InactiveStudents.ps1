@@ -227,7 +227,7 @@ function Send-AlertEmail {
   # Write-Debug ( $mailParams | Out-String )
   $mailParams = @{
    To         = $MailTarget
-   From       = $MailCredential.Username
+   From       = 'Chico Unified Information Services'
    Subject    = $subject
    bodyAsHTML = $true
    Body       = $_.html
