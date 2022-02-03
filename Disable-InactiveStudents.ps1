@@ -7,26 +7,17 @@
  is not present in Aeries results then the AD account is disabled,
  and if present will be used to determine if the account should remain active until the hold date expires.
 .EXAMPLE
- .\Disable-InactiveStudents.ps1 -DC $dc -ADCredential $adCreds -SISConnection $sisConn -SISCredential $sisCreds
-.EXAMPLE
- .\Disable-InactiveStudents.ps1 -DC $dc -ADCredential $adCreds -SISConnection $sisConn -SISCredential $sisCreds -WhatIf -Verbose
+ .\Disable-InactiveStudents.ps1 -DC $dc -RootOU 'OU=StuOU,DN=Mars,DN=Colony' -ADCredential $adCreds -SISConnection $sisConn -SISCredential $sisCreds -MailCred $malCred -MailTarg meohmy@mars.com
 .INPUTS
  Active Directory Domain controller, AD account credentail object with server permissions and various user object permissions
 .OUTPUTS
- Log entries are recorded for each operation
+Active Directory Object updates
+GSuite account updates
+Chromebook device updates
+Email Messages
 .NOTES
- In special cases an account can be held open until a set date. This is recorded in the 'info' attribute of the user object.
- the format to store the date could be for example:
- { "keepUntil": "9/1/2025" }
- or
- { "keepUntil": "Sep 1 2025" }
- or
- { "keepUntil": "Monday, September 1, 2025 12:00:00 AM" }
-
- These would be an examples of an invalid date reference:
- { "keepUntil": "Sept 1 2025" }
- and this is also invalid:
- { "keepUntil": "Sep 1st 2025" }
+ In special cases an account can be held open until a set date.
+ Use the AccountExpirationDate AD attribue to keep a student's account active.
 #>
 [cmdletbinding()]
 param (
@@ -51,8 +42,10 @@ param (
  [System.Management.Automation.PSCredential]$SISCredential,
  [Parameter(Mandatory = $True)]
  [System.Management.Automation.PSCredential]$MailCredential,
+ [Parameter(Mandatory = $True)]
  [string[]]$MailTarget,
  [string[]]$BccAddress,
+ [string[]]$CCAddress,
  [Alias('wi')]
  [SWITCH]$WhatIf
 )
@@ -60,22 +53,18 @@ param (
 # Script Functions =========================================================================
 function Format-Html {
  begin {
-  $html = Get-Content -Path .\html\return_chromebook_message_2.html -Raw
+  $html = Get-Content -Path .\html\return_chromebook_message.html -Raw
  }
  process {
   $data = $_.group[0]
+  $stuName = $data.FirstName + ' ' + $data.LastName
+  $output = @{html = $html; stuName = $stuName ; gmail = $data.mail }
   Write-Host ('{0},{1}' -f $data.mail, $MyInvocation.MyCommand.name) -ForegroundColor DarkCyan
   $parentEmails = $_ | Format-ParentEmailAddresses
-  $msg = $html.Replace('{email}', $parentEmails)
-  $msg = $msg.Replace('{student}', ( $data.FirstName + ' ' + $data.LastName))
-  $msg = $msg.Replace('{barcode}', $data.Barcode)
-  # @{
-  #  html = $msg
-  #  to   = $MailTarget
-  #  cred = $MailCredential
-  #  bcc  = $BccAddress
-  # }
-  $msg
+  $output.html = $output.html.Replace('{email}', $parentEmails)
+  $output.html = $output.html.Replace('{student}', $stuName)
+  $output.html = $output.html.Replace('{barcode}', $data.Barcode)
+  $output
  }
 }
 
@@ -233,22 +222,23 @@ function Send-AlertEmail {
   $i = 0
  }
  process {
+  Write-Host ('To: {0},CC: {1},BCc: {2}, {3}' -f ($MailTarget -join ','), ($CCAddress -join ','), ($BccAddress -join ','), $MyInvocation.MyCommand.name)
+  Write-Debug ('{0},{1}' -f ($_.gmail -join ','), $MyInvocation.MyCommand.name)
   # Write-Debug ( $mailParams | Out-String )
-  # Write-Debug ('{0},{1}' -f ($MailTarget -join ','), $MyInvocation.MyCommand.name)
   $mailParams = @{
    To         = $MailTarget
    From       = $MailCredential.Username
    Subject    = $subject
    bodyAsHTML = $true
-   Body       = $_
+   Body       = $_.html
    SMTPServer = 'smtp.office365.com'
    Cred       = $MailCredential
    UseSSL     = $True
    Port       = 587
   }
   if ($BccAddress) { $mailParams += @{Bcc = $BccAddress } }
-  Write-Verbose ($_ | Out-String)
-  Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.name, ($MailTarget -join ','))
+  if ($CCAddress) { $mailParams += @{CC = $CCAddress } }
+  Write-Verbose ($_.html | Out-String)
   if (-not$WhatIf) { Send-MailMessage @mailParams }
   $i++
  }
@@ -305,6 +295,7 @@ Import-PSSession -Session $adSession -Module ActiveDirectory -CommandName $adCmd
 $activeAD = Get-ActiveAD
 $activeAeries = Get-ActiveAeries
 $inactiveIDs = Get-InactiveIDs -activeAD $activeAD -activeAeries $activeAeries
+
 Get-InactiveADObj -activeAD $activeAD -inactiveIDs $inactiveIDs | Disable-ADObjects | Set-UserAccountControl |
 Set-RandomPassword | Set-GsuiteSuspended | Get-AssignedChromeBookUsers | Update-Chromebooks | Get-SecondaryStudents | Format-Html | Send-AlertEmail
 
