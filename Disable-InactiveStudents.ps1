@@ -34,6 +34,8 @@ param (
  [Alias('DC', 'Server')]
  [ValidateScript( { Test-Connection -ComputerName $_ -Quiet -Count 5 })]
  [string]$DomainController,
+ [Parameter(Mandatory = $True)]
+ [string]$RootOU,
  # PSSession to Domain Controller and Use Active Directory CMDLETS
  [Parameter(Mandatory = $True)]
  [Alias('ADCred')]
@@ -99,11 +101,10 @@ function Format-ParentEmailAddresses {
 
 function Get-ActiveAD {
  Write-Host $MyInvocation.MyCommand.name
- # 'gecos' stores Aeries STU.GR (grade level)
- $properties = 'AccountExpirationDate', 'EmployeeID', 'HomePage', 'info', 'title', 'gecos'
+ $properties = 'AccountExpirationDate', 'EmployeeID', 'HomePage', 'info', 'title'
  $allStuParams = @{
-  Filter     = { (homepage -like "*@*") -and (employeeID -like "*") }
-  SearchBase = 'OU=Students,OU=Users,OU=Domain_Root,DC=chico,DC=usd'
+  Filter     = { (homepage -like "*@chicousd.net*") -and (employeeID -like "*") }
+  SearchBase = $RootOU
   Properties = $properties
  }
 
@@ -233,7 +234,7 @@ function Send-AlertEmail {
  }
  process {
   # Write-Debug ( $mailParams | Out-String )
-  Write-Debug ('{0},{1}' -f ($MailTarget -join ','), $MyInvocation.MyCommand.name)
+  # Write-Debug ('{0},{1}' -f ($MailTarget -join ','), $MyInvocation.MyCommand.name)
   $mailParams = @{
    To         = $MailTarget
    From       = $MailCredential.Username
