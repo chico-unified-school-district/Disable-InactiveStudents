@@ -41,6 +41,9 @@ param (
  [Alias('SISCred')]
  [System.Management.Automation.PSCredential]$SISCredential,
  [Parameter(Mandatory = $True)]
+ [Alias('FSCred')]
+ [System.Management.Automation.PSCredential]$FileSystemCredential,
+ [Parameter(Mandatory = $True)]
  [System.Management.Automation.PSCredential]$MailCredential,
  [Parameter(Mandatory = $True)]
  [string[]]$MailTarget,
@@ -49,7 +52,6 @@ param (
  [Alias('wi')]
  [SWITCH]$WhatIf
 )
-
 # Script Functions =========================================================================
 function Format-Html {
  begin {
@@ -296,11 +298,12 @@ $activeAD = Get-ActiveAD
 $activeAeries = Get-ActiveAeries
 $inactiveIDs = Get-InactiveIDs -activeAD $activeAD -activeAeries $activeAeries
 
-Get-InactiveADObj -activeAD $activeAD -inactiveIDs $inactiveIDs | Disable-ADObjects | Set-UserAccountControl |
-Set-RandomPassword | Set-GsuiteSuspended | Get-AssignedChromeBookUsers | Update-Chromebooks | Get-SecondaryStudents | Format-Html | Send-AlertEmail
+# Get-InactiveADObj -activeAD $activeAD -inactiveIDs $inactiveIDs | Disable-ADObjects | Set-UserAccountControl |
+# Set-RandomPassword | Set-GsuiteSuspended | Get-AssignedChromeBookUsers | Update-Chromebooks | Get-SecondaryStudents | Format-Html | Send-AlertEmail
 
-# Get-InactiveADObj -activeAD $activeAD -inactiveIDs $inactiveIDs |
-# Get-AssignedChromeBookUsers | Get-SecondaryStudents | Format-Html | Send-AlertEmail
+Get-InactiveADObj -activeAD $activeAD -inactiveIDs $inactiveIDs |
+Get-AssignedChromeBookUsers | % { $_.group } | Export-Csv -Path gs:\dump\missing-chromebooks.csv
+# | Format-Html | Send-AlertEmail
 
 Clear-SessionData
 Show-TestRun
