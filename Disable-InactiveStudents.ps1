@@ -42,7 +42,12 @@ param (
  [System.Management.Automation.PSCredential]$SISCredential,
  [Parameter(Mandatory = $True)]
  [Alias('FSCred')]
- [System.Management.Automation.PSCredential]$FileSystemCredential,
+ [System.Management.Automation.PSCredential]$ExportServerCredentail,
+ [Parameter(Mandatory = $True)]
+ [ValidateScript( { Test-Connection -ComputerName $_ -Quiet -Count 5 })]
+ [string]$ExportServer,
+ [Parameter(Mandatory = $True)]
+ [string]$ExportPath,
  [Parameter(Mandatory = $True)]
  [System.Management.Automation.PSCredential]$MailCredential,
  [Parameter(Mandatory = $True)]
@@ -53,6 +58,19 @@ param (
  [SWITCH]$WhatIf
 )
 # Script Functions =========================================================================
+function Export-Report ($ExportData) {
+ $exportFileName = 'Recover_Devices-' + (Get-Date -f yyyy-MM-dd)
+ Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.name, "\\$ExportServer\$ExportPath\$exportFileName") -ForegroundColor DarkCyan
+ 'ImportExcel' | Load-Module
+ $originalPath = Get-Location
+ Write-Verbose "Adding PSDrive"
+ New-PSDrive -name share -Root \\$ExportServer\$ExportPath -PSProvider FileSystem -Credential $ExportServerCredential | Out-Null
+ Set-Location -Path share:
+ $ExportData | Export-Excel -Path .\$exportFileName.xlsx
+ Set-Location $originalPath
+ Write-Verbose "Removing PSDrive"
+ Remove-PSDrive -Name share -Confirm:$false -Force | Out-Null
+}
 function Format-Html {
  begin {
   $html = Get-Content -Path .\html\return_chromebook_message.html -Raw
@@ -131,7 +149,7 @@ function Get-InactiveIDs ($activeAD, $activeAeries) {
  Where-Object { $_.SideIndicator -eq '=>' }
 }
 
-filter Get-AssignedChromeBookUsers {
+filter Get-AssignedDeviceUsers {
  $sqlParams = @{
   Server     = $SISServer
   Database   = $SISDatabase
@@ -290,20 +308,21 @@ Clear-SessionData
 'SQLServer' | Load-Module
 
 # AD Domain Controller Session
+Write-Host 'Starting Active Directory Session' -ForegroundColor Green
 $adCmdLets = 'Get-ADUser', 'Set-ADUser', 'Set-ADAccountPassword'
 $adSession = New-PSSession -ComputerName $DomainController -Credential $ADCredential
-Import-PSSession -Session $adSession -Module ActiveDirectory -CommandName $adCmdLets -AllowClobber
+Import-PSSession -Session $adSession -Module ActiveDirectory -CommandName $adCmdLets -AllowClobber  | OUt-Null
 
 $activeAD = Get-ActiveAD
 $activeAeries = Get-ActiveAeries
 $inactiveIDs = Get-InactiveIDs -activeAD $activeAD -activeAeries $activeAeries
 
-# Get-InactiveADObj -activeAD $activeAD -inactiveIDs $inactiveIDs | Disable-ADObjects | Set-UserAccountControl |
-# Set-RandomPassword | Set-GsuiteSuspended | Get-AssignedChromeBookUsers | Update-Chromebooks | Get-SecondaryStudents | Format-Html | Send-AlertEmail
+$aDObjs = Get-InactiveADObj -activeAD $activeAD -inactiveIDs $inactiveIDs
 
-Get-InactiveADObj -activeAD $activeAD -inactiveIDs $inactiveIDs |
-Get-AssignedChromeBookUsers | % { $_.group } | Export-Csv -Path gs:\dump\missing-chromebooks.csv
-# | Format-Html | Send-AlertEmail
+Export-Report -ExportData (($aDObjs | Get-AssignedDeviceUsers).group)
+
+$adObjs | Disable-ADObjects | Set-UserAccountControl | Set-RandomPassword | Set-GsuiteSuspended | Get-AssignedDeviceUsers |
+Update-Chromebooks | Get-SecondaryStudents | Format-Html | Send-AlertEmail
 
 Clear-SessionData
 Show-TestRun
