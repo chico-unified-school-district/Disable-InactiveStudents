@@ -40,9 +40,9 @@ param (
  [Parameter(Mandatory = $True)]
  [Alias('SISCred')]
  [System.Management.Automation.PSCredential]$SISCredential,
- [Parameter(Mandatory = $True)]
- [Alias('FSCred')]
- [System.Management.Automation.PSCredential]$ExportServerCredentail,
+ # [Parameter(Mandatory = $True)]
+ # [Alias('FSCred')]
+ # [System.Management.Automation.PSCredential]$ExportServerCredentail,
  [Parameter(Mandatory = $True)]
  [ValidateScript( { Test-Connection -ComputerName $_ -Quiet -Count 5 })]
  [string]$ExportServer,
@@ -66,22 +66,13 @@ function Export-Report ($ExportData) {
  $exportFileName = 'Recover_Devices-' + (Get-Date -f yyyy-MM-dd)
  $ExportBody = Get-Content -Path .\html\report_export.html -Raw
  Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.name, ".\reports\$exportFileName") -ForegroundColor DarkCyan
- # Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.name, "\\$ExportServer\$ExportPath\$exportFileName") -ForegroundColor DarkCyan
- 'ImportExcel' | Load-Module
- $originalPath = Get-Location
- Write-Verbose "Adding PSDrive"
- New-PSDrive -name share -Root \\$ExportServer\$ExportPath -PSProvider FileSystem -Credential $ExportServerCredential | Out-Null
- Set-Location -Path share:
+ if (-not(Test-Path -Path .\reports\)) { New-Item -Type Directory -Name reports -Force -WhatIf:$WhatIf }
  if (-not$WhatIf) {
   Write-Host 'Export data to Excel file'
+  'ImportExcel' | Load-Module
   $ExportData | Export-Excel -Path .\reports\$exportFileName.xlsx
-  Write-Host 'Copy export data to remote share path'
-  Copy-Item -Path .\reports\$exportFileName.xlsx -Destination share: -Confirm:$false -Force
  }
  Send-ReportData -AttachmentPath .\reports\$exportFileName.xlsx -ExportHTML $ExportBody
- Set-Location $originalPath
- Write-Verbose "Removing PSDrive"
- Remove-PSDrive -Name share -Confirm:$false -Force | Out-Null
 }
 function Format-Html {
  begin {
