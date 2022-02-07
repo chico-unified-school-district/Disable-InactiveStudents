@@ -49,9 +49,13 @@ param (
  [Parameter(Mandatory = $True)]
  [string]$ExportPath,
  [Parameter(Mandatory = $True)]
+ [string[]]$ExportMailTarget,
+ [Parameter(Mandatory = $True)]
  [System.Management.Automation.PSCredential]$MailCredential,
  [Parameter(Mandatory = $True)]
  [string[]]$MailTarget,
+ [Parameter(Mandatory = $True)]
+ [string]$From,
  [string[]]$BccAddress,
  [string[]]$CCAddress,
  [Alias('wi')]
@@ -67,6 +71,7 @@ function Export-Report ($ExportData) {
  New-PSDrive -name share -Root \\$ExportServer\$ExportPath -PSProvider FileSystem -Credential $ExportServerCredential | Out-Null
  Set-Location -Path share:
  $ExportData | Export-Excel -Path .\$exportFileName.xlsx
+ Send-ReportData -Attachment .\$exportFileName.xlsx
  Set-Location $originalPath
  Write-Verbose "Removing PSDrive"
  Remove-PSDrive -Name share -Confirm:$false -Force | Out-Null
@@ -247,7 +252,7 @@ function Send-AlertEmail {
   # Write-Debug ( $mailParams | Out-String )
   $mailParams = @{
    To         = $MailTarget
-   From       = 'Chico Unified Information Services'
+   From       = '<0>' -f $Fromdi
    Subject    = $subject
    bodyAsHTML = $true
    Body       = $_.html
@@ -266,7 +271,27 @@ function Send-AlertEmail {
   Write-Host ('Emails sent: {0}' -f $i) -ForegroundColor DarkGreen
  }
 }
-
+function Send-ReportData {
+ param (
+  $ReportHtml,
+  $Attachment
+ )
+ Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.name, ($ExportMailTarget -join ',')  )
+ $mailParams = @{
+  To         = $ExportMailTarget
+  From       = 'Chico Unified Information Services'
+  Subject    = (Get-Date -f MM/DD) + 'Student Device Recovery Report'
+  bodyAsHTML = $true
+  Body       = $ReportHtml
+  Attachment = $Attachment
+  SMTPServer = 'smtp.office365.com'
+  Cred       = $MailCredential
+  UseSSL     = $True
+  Port       = 587
+ }
+ Write-Verbose ($_.html | Out-String)
+ if (-not$WhatIf) { Send-MailMessage @mailParams }
+}
 function Set-RandomPassword {
  Process {
   Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name) -ForegroundColor DarkCyan

@@ -1,4 +1,5 @@
 function Show-TestRun {
+
  $str = "
            _______   ______    _____   _______     _____    _    _   _   _
   ______  |__   __| |  ____|  / ____| |__   __|   |  __ \  | |  | | | \ | |  ______
@@ -8,5 +9,5 @@ function Show-TestRun {
              |_|    |______| |_____/     |_|      |_|  \_\  \____/  |_| \_|
 
 "
- Write-Host $str -ForegroundColor Cyan
+ if (-not$WhatIf) { Write-Host $str -ForegroundColor Cyan }
 }
