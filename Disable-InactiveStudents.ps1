@@ -344,9 +344,12 @@ $inactiveIDs = Get-InactiveIDs -activeAD $activeAD -activeAeries $activeAeries
 
 $aDObjs = Get-InactiveADObj -activeAD $activeAD -inactiveIDs $inactiveIDs
 
-Export-Report -ExportData (($aDObjs | Get-AssignedDeviceUsers).group)
+# Export-Report -ExportData (($aDObjs | Get-AssignedDeviceUsers).group)
 
-$adObjs | Disable-ADObjects | Set-UserAccountControl | Set-RandomPassword | Set-GsuiteSuspended | Get-AssignedDeviceUsers |
+# $adObjs | Disable-ADObjects | Set-UserAccountControl | Set-RandomPassword | Set-GsuiteSuspended | Get-AssignedDeviceUsers |
+# Update-Chromebooks | Get-SecondaryStudents | Format-Html | Send-AlertEmail
+
+$adObjs | Get-AssignedDeviceUsers |
 Update-Chromebooks | Get-SecondaryStudents | Format-Html | Send-AlertEmail
 
 Clear-SessionData
