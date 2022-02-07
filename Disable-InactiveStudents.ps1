@@ -64,14 +64,15 @@ param (
 # Script Functions =========================================================================
 function Export-Report ($ExportData) {
  $exportFileName = 'Recover_Devices-' + (Get-Date -f yyyy-MM-dd)
+ $ExportBody = Get-Content -Path .\html\report_export.html -Raw
  Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.name, "\\$ExportServer\$ExportPath\$exportFileName") -ForegroundColor DarkCyan
  'ImportExcel' | Load-Module
  $originalPath = Get-Location
  Write-Verbose "Adding PSDrive"
  New-PSDrive -name share -Root \\$ExportServer\$ExportPath -PSProvider FileSystem -Credential $ExportServerCredential | Out-Null
  Set-Location -Path share:
- $ExportData | Export-Excel -Path .\$exportFileName.xlsx
- Send-ReportData -Attachment .\$exportFileName.xlsx
+ if (-not$WhatIf) { $ExportData | Export-Excel -Path .\$exportFileName.xlsx }
+ Send-ReportData -AttachmentPath .\$exportFileName.xlsx -ExportHTML $ExportBody
  Set-Location $originalPath
  Write-Verbose "Removing PSDrive"
  Remove-PSDrive -Name share -Confirm:$false -Force | Out-Null
@@ -252,7 +253,7 @@ function Send-AlertEmail {
   # Write-Debug ( $mailParams | Out-String )
   $mailParams = @{
    To         = $MailTarget
-   From       = '<0>' -f $Fromdi
+   From       = $From -as [mailaddress]
    Subject    = $subject
    bodyAsHTML = $true
    Body       = $_.html
@@ -273,17 +274,17 @@ function Send-AlertEmail {
 }
 function Send-ReportData {
  param (
-  $ReportHtml,
-  $Attachment
+  $AttachmentPath,
+  $ExportHTML
  )
  Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.name, ($ExportMailTarget -join ',')  )
  $mailParams = @{
   To         = $ExportMailTarget
-  From       = 'Chico Unified Information Services'
-  Subject    = (Get-Date -f MM/DD) + 'Student Device Recovery Report'
+  From       = $From -as [mailaddress]
+  Subject    = (Get-Date -f MM/dd/yyyy) + ' - Student Device Recovery Report'
   bodyAsHTML = $true
-  Body       = $ReportHtml
-  Attachment = $Attachment
+  Body       = $ExportHTML
+  Attachment = $AttachmentPath
   SMTPServer = 'smtp.office365.com'
   Cred       = $MailCredential
   UseSSL     = $True
@@ -344,13 +345,13 @@ $inactiveIDs = Get-InactiveIDs -activeAD $activeAD -activeAeries $activeAeries
 
 $aDObjs = Get-InactiveADObj -activeAD $activeAD -inactiveIDs $inactiveIDs
 
-# Export-Report -ExportData (($aDObjs | Get-AssignedDeviceUsers).group)
+Export-Report -ExportData (($aDObjs | Get-AssignedDeviceUsers).group)
 
-# $adObjs | Disable-ADObjects | Set-UserAccountControl | Set-RandomPassword | Set-GsuiteSuspended | Get-AssignedDeviceUsers |
-# Update-Chromebooks | Get-SecondaryStudents | Format-Html | Send-AlertEmail
-
-$adObjs | Get-AssignedDeviceUsers |
+$adObjs | Disable-ADObjects | Set-UserAccountControl | Set-RandomPassword | Set-GsuiteSuspended | Get-AssignedDeviceUsers |
 Update-Chromebooks | Get-SecondaryStudents | Format-Html | Send-AlertEmail
+
+# for testing
+# $adObjs | Get-AssignedDeviceUsers | Get-SecondaryStudents | Format-Html | Send-AlertEmail
 
 Clear-SessionData
 Show-TestRun

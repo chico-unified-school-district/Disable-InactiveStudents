@@ -9,5 +9,5 @@ function Show-TestRun {
              |_|    |______| |_____/     |_|      |_|  \_\  \____/  |_| \_|
 
 "
- if (-not$WhatIf) { Write-Host $str -ForegroundColor Cyan }
+ if ($WhatIf) { Write-Host $str -ForegroundColor Cyan }
 }
