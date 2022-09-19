@@ -22,9 +22,8 @@ Email Messages
 [cmdletbinding()]
 param (
  [Parameter(Mandatory = $True)]
- [Alias('DC', 'Server')]
- [ValidateScript( { Test-Connection -ComputerName $_ -Quiet -Count 5 })]
- [string]$DomainController,
+ [Alias('DCs')]
+ [string[]]$DomainControllers,
  [Parameter(Mandatory = $True)]
  [string]$RootOU,
  # PSSession to Domain Controller and Use Active Directory CMDLETS
@@ -40,14 +39,6 @@ param (
  [Parameter(Mandatory = $True)]
  [Alias('SISCred')]
  [System.Management.Automation.PSCredential]$SISCredential,
- # [Parameter(Mandatory = $True)]
- # [Alias('FSCred')]
- # [System.Management.Automation.PSCredential]$ExportServerCredentail,
- [Parameter(Mandatory = $True)]
- [ValidateScript( { Test-Connection -ComputerName $_ -Quiet -Count 5 })]
- [string]$ExportServer,
- [Parameter(Mandatory = $True)]
- [string]$ExportPath,
  [Parameter(Mandatory = $True)]
  [string[]]$ExportMailTarget,
  [Parameter(Mandatory = $True)]
@@ -321,7 +312,9 @@ function Set-UserAccountControl {
 # Imported Functions
 . .\lib\Clear-SessionData.ps1
 . .\lib\Load-Module.ps1
+. .\lib\New-ADSession.ps1
 . .\lib\New-RandomPassword.ps1
+. .\lib\Select-DomainController.ps1
 . .\lib\Show-TestRun.ps1
 
 # Processing
@@ -330,11 +323,9 @@ Clear-SessionData
 
 'SQLServer' | Load-Module
 
-# AD Domain Controller Session
-Write-Host 'Starting Active Directory Session' -ForegroundColor Green
-$adCmdLets = 'Get-ADUser', 'Set-ADUser', 'Set-ADAccountPassword'
-$adSession = New-PSSession -ComputerName $DomainController -Credential $ADCredential
-Import-PSSession -Session $adSession -Module ActiveDirectory -CommandName $adCmdLets -AllowClobber  | OUt-Null
+$dc = Select-DomainController $DomainControllers
+$cmdlets = 'Get-ADUser', 'Set-ADUser', 'Set-ADAccountPassword'
+New-ADSession -dc $dc -cmdlets $cmdlets -cred $ADCredential
 
 $activeAD = Get-ActiveAD
 $activeAeries = Get-ActiveAeries
