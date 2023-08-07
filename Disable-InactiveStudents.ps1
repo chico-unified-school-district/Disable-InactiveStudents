@@ -111,13 +111,36 @@ function Get-ActiveAD {
   Properties = $properties
  }
 
- Get-ADUser @allStuParams | Where-Object {
+ $objs = Get-ADUser @allStuParams | Where-Object {
   $_.samaccountname -match "^\b[a-zA-Z][a-zA-Z]\d{5,6}\b$" -and
   $_.employeeID -match "^\d{5,6}$" -and
   $_.title -notmatch 'test' -and
   $_.AccountExpirationDate -isnot [datetime] -and
   $_.Enabled -eq $True
- } | Sort-Object employeeId
+ }
+ Write-Host ('{0},Count: {1}' -f $MyInvocation.MyCommand.Name, $objs.count) -Fore Green
+ $objs | Sort-Object employeeId
+}
+
+function Get-StaleAD {
+ Write-Host $MyInvocation.MyCommand.name
+ $cutOff = (Get-Date).AddMonths(-9)
+ $properties = 'LastLogonDate', 'EmployeeID', 'HomePage', 'title', 'WhenCreated'
+ $allStuParams = @{
+  Filter     = { (homepage -like "*@*") -and (employeeID -like "*") -and (Enabled -eq 'False') }
+  SearchBase = $RootOU
+  Properties = $properties
+ }
+ $objs = Get-ADUser @allStuParams | Where-Object {
+  $_.samaccountname -match "^\b[a-zA-Z][a-zA-Z]\d{5,6}\b$" -and
+  $_.employeeID -match "^\d{5,6}$" -and
+  $_.title -notmatch 'test' -and
+  $_.LastLogonDate -lt $cutOff -and
+  $_.WhenCreated -lt $cutOff
+ }
+ Write-Host ('{0},Count: {1}' -f $MyInvocation.MyCommand.Name, $objs.count) -Fore Green
+ Start-Sleep 3
+ $objs | Sort-Object employeeId
 }
 
 function Get-ActiveAeries {
@@ -181,7 +204,6 @@ function Disable-ADObjects {
 
 function Update-Chromebooks {
  begin {
-  $gamExe = '.\lib\gam-64\gam.exe'
   $crosFields = 'serialNumber,orgUnitPath,deviceId,status'
  }
  process {
@@ -190,7 +212,7 @@ function Update-Chromebooks {
   $sn = $data.serialNumber
   Write-Host ('{0},{1}' -f $sn, $MyInvocation.MyCommand.name) -ForegroundColor DarkCyan
   # ' *>$null suppresses noisy output '
- ($crosDev = & $gamExe print cros query "id: $sn" fields $crosFields | ConvertFrom-CSV) *>$null
+ ($crosDev = & $gam print cros query "id: $sn" fields $crosFields | ConvertFrom-CSV) *>$null
   if ($crosDev) {
    $crosDev | Set-ChromebookOU
    $crosDev | Disable-Chromebook
@@ -207,9 +229,9 @@ function Set-ChromebookOU {
   $id = $_.deviceId
   if ($_.orgUnitPath -notmatch $targOu) {
    Write-Host ('{0},{1}' -f $_.deviceId, $MyInvocation.MyCommand.name) -ForegroundColor DarkCyan
-   Write-Host "& $gamExe update cros $id ou /Chromebooks/Missing *>$null"
+   Write-Host "& $gam update cros $id ou /Chromebooks/Missing *>$null"
    if (-not$WhatIf) {
-    & $gamExe update cros $id ou $targOu *>$null
+    & $gam update cros $id ou $targOu *>$null
    }
   }
   else { Write-Verbose "$id,Skipping. OrgUnitPath already $targOu" }
@@ -221,9 +243,9 @@ function Disable-Chromebook {
   $id = $_.deviceId
   if ($crosDev.status -eq "ACTIVE") {
    Write-Host ('{0},{1}' -f $_.deviceId, $MyInvocation.MyCommand.name) -ForegroundColor DarkCyan
-   Write-Host "& $gamExe update cros $id action disable *>$null"
+   Write-Host "& $gam update cros $id action disable *>$null"
    if (-not$WhatIf) {
-    & $gamExe update cros $id action disable *>$null
+    & $gam update cros $id action disable *>$null
    }
   }
   else { Write-Verbose "$id,Skipping. Status already `'Disabled`'" }
@@ -291,10 +313,9 @@ function Set-RandomPassword {
 }
 
 function Set-GsuiteSuspended {
- begin { $gamExe = '.\lib\gam-64\gam.exe' }
  process {
   Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name) -ForegroundColor DarkCyan
-  if ($_.HomePage -and -not$WhatIf) { (& $gamExe update user $_.HomePage suspended on) *>$null }
+  if ($_.HomePage -and -not$WhatIf) { (& $gam update user $_.HomePage suspended on) *>$null }
   $_
  }
 }
@@ -308,6 +329,24 @@ function Set-UserAccountControl {
  }
 }
 
+function Remove-StaleAD {
+ process {
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $_.samaccountname) -Fore Yellow
+  Remove-ADObject -Identity $_.ObjectGUID -Recursive -Confirm:$false -WhatIf:$WhatIf
+  $_
+ }
+}
+
+function Remove-StaleGSuite {
+ process {
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $_.HomePage) -Fore Cyan
+  Write-Verbose ("& $gam delete user {0}" -f $_.HomePage)
+  if ($WhatIf) { return }
+  &$gam delete user $_.HomePage
+  # pause
+ }
+}
+
 # =========================================================================================
 # Imported Functions
 . .\lib\Clear-SessionData.ps1
@@ -317,11 +356,13 @@ function Set-UserAccountControl {
 . .\lib\Select-DomainController.ps1
 . .\lib\Show-TestRun.ps1
 
-# Processing
+# ======================================= Processing ======================================
 Show-TestRun
 Clear-SessionData
 
 'SQLServer' | Load-Module
+
+$gam = '.\bin\gam.exe'
 
 $dc = Select-DomainController $DomainControllers
 $cmdlets = 'Get-ADUser', 'Set-ADUser', 'Set-ADAccountPassword'
@@ -335,8 +376,20 @@ $aDObjs = Get-InactiveADObj -activeAD $activeAD -inactiveIDs $inactiveIDs
 
 Export-Report -ExportData (($aDObjs | Get-AssignedDeviceUsers).group)
 
-$adObjs | Disable-ADObjects | Set-UserAccountControl | Set-RandomPassword | Set-GsuiteSuspended | Get-AssignedDeviceUsers |
-Update-Chromebooks | Get-SecondaryStudents | Format-Html | Send-AlertEmail
+# Disable inactive student accounts
+$adObjs |
+Disable-ADObjects |
+Set-UserAccountControl |
+Set-RandomPassword |
+Set-GsuiteSuspended |
+Get-AssignedDeviceUsers |
+Update-Chromebooks |
+Get-SecondaryStudents |
+Format-Html |
+Send-AlertEmail
+
+# Remove old student accounts
+Get-StaleAD | Remove-StaleAD | Remove-StaleGsuite
 
 # for testing
 # $adObjs | Get-AssignedDeviceUsers | Get-SecondaryStudents | Format-Html | Send-AlertEmail
