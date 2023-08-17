@@ -18,6 +18,7 @@ Email Messages
 .NOTES
  In special cases an account can be held open until a set date.
  Use the AccountExpirationDate AD attribue to keep a student's account active.
+ https://developers.google.com/admin-sdk/licensing/v1/how-tos/products
 #>
 [cmdletbinding()]
 param (
@@ -56,7 +57,7 @@ param (
 function Export-Report ($ExportData) {
  $exportFileName = 'Recover_Devices-' + (Get-Date -f yyyy-MM-dd)
  $ExportBody = Get-Content -Path .\html\report_export.html -Raw
- Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.name, ".\reports\$exportFileName") -ForegroundColor DarkCyan
+ Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.name, ".\reports\$exportFileName") -Fore DarkCyan
  if (-not(Test-Path -Path .\reports\)) { New-Item -Type Directory -Name reports -Force -WhatIf:$WhatIf }
  if (-not$WhatIf) {
   Write-Host 'Export data to Excel file'
@@ -73,7 +74,7 @@ function Format-Html {
   $data = $_.group[0]
   $stuName = $data.FirstName + ' ' + $data.LastName
   $output = @{html = $html; stuName = $stuName ; gmail = $data.mail }
-  Write-Host ('{0},{1}' -f $data.mail, $MyInvocation.MyCommand.name) -ForegroundColor DarkCyan
+  Write-Host ('{0},{1}' -f $data.mail, $MyInvocation.MyCommand.name) -Fore DarkCyan
   $parentEmails = $_ | Format-ParentEmailAddresses
   $output.html = $output.html.Replace('{email}', $parentEmails)
   $output.html = $output.html.Replace('{student}', $stuName)
@@ -85,7 +86,7 @@ function Format-Html {
 function Format-ParentEmailAddresses {
  process {
   # Build a string containing any parent emails
-  Write-Host ('{0},{1}' -f $_.group[0].mail, $MyInvocation.MyCommand.name) -ForegroundColor DarkCyan
+  Write-Host ('{0},{1}' -f $_.group[0].mail, $MyInvocation.MyCommand.name) -Fore DarkCyan
   foreach ($obj in $_.group) {
    if ( -not([DBNull]::Value).Equals($obj.ParentEmail) -and ($null -ne $obj.ParentEmail) -and ($obj.ParentEmail -like '*@*')) {
     if ($parentEmailList -notmatch $obj.ParentEmail) {
@@ -172,7 +173,7 @@ filter Get-AssignedDeviceUsers {
   Database   = $SISDatabase
   Credential = $SISCredential
  }
- Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name) -ForegroundColor DarkCyan
+ Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name) -Fore DarkCyan
  $sql = (Get-Content -Path .\sql\student_return_cb.sq.sql -Raw) -f $_.employeeId
  Invoke-SqlCmd @sqlParams -Query $sql | Group-Object
 }
@@ -185,7 +186,7 @@ filter Get-SecondaryStudents {
    $_
   }
   else {
-   Write-Host ('{0},{1},Grade: {2},Primary student detected. Skipping.' -f $data.Mail, $MyInvocation.MyCommand.name, $data.Grade) -ForegroundColor Yellow
+   Write-Host ('{0},{1},Grade: {2},Primary student detected. Skipping.' -f $data.Mail, $MyInvocation.MyCommand.name, $data.Grade) -Fore Yellow
   }
  }
  else {
@@ -196,7 +197,7 @@ filter Get-SecondaryStudents {
 function Disable-ADObjects {
  process {
   Write-Debug ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name)
-  Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name) -ForegroundColor DarkCyan
+  Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name) -Fore DarkCyan
   Set-ADUser -Identity $_.ObjectGUID -Enabled:$false -Confirm:$false -WhatIf:$WhatIf
   $_
  }
@@ -208,9 +209,9 @@ function Update-Chromebooks {
  }
  process {
   $data = $_.group[0]
-  Write-Host ('{0},{1}' -f $data.mail, $MyInvocation.MyCommand.name) -ForegroundColor DarkCyan
+  Write-Host ('{0},{1}' -f $data.mail, $MyInvocation.MyCommand.name) -Fore DarkCyan
   $sn = $data.serialNumber
-  Write-Host ('{0},{1}' -f $sn, $MyInvocation.MyCommand.name) -ForegroundColor DarkCyan
+  Write-Host ('{0},{1}' -f $sn, $MyInvocation.MyCommand.name) -Fore DarkCyan
   # ' *>$null suppresses noisy output '
  ($crosDev = & $gam print cros query "id: $sn" fields $crosFields | ConvertFrom-CSV) *>$null
   if ($crosDev) {
@@ -228,7 +229,7 @@ function Set-ChromebookOU {
  process {
   $id = $_.deviceId
   if ($_.orgUnitPath -notmatch $targOu) {
-   Write-Host ('{0},{1}' -f $_.deviceId, $MyInvocation.MyCommand.name) -ForegroundColor DarkCyan
+   Write-Host ('{0},{1}' -f $_.deviceId, $MyInvocation.MyCommand.name) -Fore DarkCyan
    Write-Host "& $gam update cros $id ou /Chromebooks/Missing *>$null"
    if (-not$WhatIf) {
     & $gam update cros $id ou $targOu *>$null
@@ -242,13 +243,23 @@ function Disable-Chromebook {
  process {
   $id = $_.deviceId
   if ($crosDev.status -eq "ACTIVE") {
-   Write-Host ('{0},{1}' -f $_.deviceId, $MyInvocation.MyCommand.name) -ForegroundColor DarkCyan
+   Write-Host ('{0},{1}' -f $_.deviceId, $MyInvocation.MyCommand.name) -Fore DarkCyan
    Write-Host "& $gam update cros $id action disable *>$null"
    if (-not$WhatIf) {
     & $gam update cros $id action disable *>$null
    }
   }
   else { Write-Verbose "$id,Skipping. Status already `'Disabled`'" }
+ }
+}
+
+function Remove-GsuiteLicense {
+ process {
+  #SKU: 1010310003 = Google Workspace for Education Plus - Legacy (Student)
+  $cmd = "& $gam user {0} delete license 1010310003" -f $_.HomePage
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $cmd) -Fore DarkCyan
+  if ($_.HomePage -and -not$WhatIf) { (& $gam user $_.HomePage delete license 1010310003) *>$null }
+  $_
  }
 }
 
@@ -279,9 +290,10 @@ function Send-AlertEmail {
   $i++
  }
  end {
-  Write-Host ('Emails sent: {0}' -f $i) -ForegroundColor DarkGreen
+  Write-Host ('Emails sent: {0}' -f $i) -Fore DarkGreen
  }
 }
+
 function Send-ReportData {
  param (
   $AttachmentPath,
@@ -303,9 +315,10 @@ function Send-ReportData {
  Write-Verbose ($_.html | Out-String)
  if (-not$WhatIf) { Send-MailMessage @mailParams }
 }
+
 function Set-RandomPassword {
  Process {
-  Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name) -ForegroundColor DarkCyan
+  Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name) -Fore DarkCyan
   $randomPW = ConvertTo-SecureString -String (New-RandomPassword) -AsPlainText -Force
   Set-ADAccountPassword -Identity $_.ObjectGUID -NewPassword $randomPW -Confirm:$false -WhatIf:$WhatIf
   $_
@@ -314,7 +327,7 @@ function Set-RandomPassword {
 
 function Set-GsuiteSuspended {
  process {
-  Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name) -ForegroundColor DarkCyan
+  Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name) -Fore DarkCyan
   if ($_.HomePage -and -not$WhatIf) { (& $gam update user $_.HomePage suspended on) *>$null }
   $_
  }
@@ -322,7 +335,7 @@ function Set-GsuiteSuspended {
 
 function Set-UserAccountControl {
  process {
-  Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name) -ForegroundColor DarkCyan
+  Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name) -Fore DarkCyan
   # Set uac to 514 (0x0202) to notify Bradford to stop access to network
   Set-ADUser -Identity $_.ObjectGUID -Replace @{UserAccountControl = 0x0202 } -Confirm:$false -WhatIf:$WhatIf
   $_
@@ -382,6 +395,7 @@ Disable-ADObjects |
 Set-UserAccountControl |
 Set-RandomPassword |
 Set-GsuiteSuspended |
+Remove-GsuiteLicense |
 Get-AssignedDeviceUsers |
 Update-Chromebooks |
 Get-SecondaryStudents |
