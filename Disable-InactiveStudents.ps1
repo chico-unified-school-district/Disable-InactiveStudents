@@ -378,7 +378,7 @@ Clear-SessionData
 $gam = '.\bin\gam.exe'
 
 $dc = Select-DomainController $DomainControllers
-$cmdlets = 'Get-ADUser', 'Set-ADUser', 'Set-ADAccountPassword'
+$cmdlets = 'Get-ADUser', 'Set-ADUser', 'Set-ADAccountPassword', 'Remove-ADobject'
 New-ADSession -dc $dc -cmdlets $cmdlets -cred $ADCredential
 
 $activeAD = Get-ActiveAD
