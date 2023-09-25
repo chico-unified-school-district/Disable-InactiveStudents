@@ -46,8 +46,6 @@ param (
  [System.Management.Automation.PSCredential]$MailCredential,
  [Parameter(Mandatory = $True)]
  [string[]]$MailTarget,
- [Parameter(Mandatory = $True)]
- [string]$From,
  [string[]]$BccAddress,
  [string[]]$CCAddress,
  [Alias('wi')]
@@ -274,7 +272,7 @@ function Send-AlertEmail {
   # Write-Debug ( $mailParams | Out-String )
   $mailParams = @{
    To         = $MailTarget
-   From       = $From -as [mailaddress]
+   From       = $MailCredential.Username
    Subject    = $subject
    bodyAsHTML = $true
    Body       = $_.html
