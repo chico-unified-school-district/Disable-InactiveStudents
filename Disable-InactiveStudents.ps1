@@ -300,7 +300,7 @@ function Send-ReportData {
  Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.name, ($ExportMailTarget -join ',')  )
  $mailParams = @{
   To         = $ExportMailTarget
-  From       = $From -as [mailaddress]
+  From       = $MailCredential.Username
   Subject    = (Get-Date -f MM/dd/yyyy) + ' - Student Device Recovery Report'
   bodyAsHTML = $true
   Body       = $ExportHTML
