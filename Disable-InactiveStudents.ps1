@@ -213,7 +213,7 @@ function Update-Chromebooks {
   $sn = $data.serialNumber
   Write-Host ('{0},{1}' -f $sn, $MyInvocation.MyCommand.name) -Fore DarkCyan
   # ' *>$null suppresses noisy output '
-  Write-Host "& $gam print cros query "id: $sn" fields $crosFields"
+  Write-Host "& $gam print cros query `"id: $sn`" fields $crosFields"
  ($crosDev = & $gam print cros query "id: $sn" fields $crosFields | ConvertFrom-CSV) *>$null
   if ($crosDev) {
    $crosDev | Set-ChromebookOU
