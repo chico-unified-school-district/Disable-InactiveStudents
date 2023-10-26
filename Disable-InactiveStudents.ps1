@@ -213,8 +213,8 @@ function Update-Chromebooks {
   $sn = $data.serialNumber
   Write-Host ('{0},{1}' -f $sn, $MyInvocation.MyCommand.name) -Fore DarkCyan
   # ' *>$null suppresses noisy output '
-  Write-Host "& $gam print cros query `"id: $sn`" fields $crosFields"
- ($crosDev = & $gam print cros query "id: $sn" fields $crosFields | ConvertFrom-CSV) *>$null
+  Write-Host "& $gam print cros query `"id: $sn`" allfields"
+ ($crosDev = & $gam print cros query "id: $sn" allfields | ConvertFrom-CSV) *>$null
   if ($crosDev) {
    $crosDev | Set-ChromebookOU
    $crosDev | Disable-Chromebook
@@ -356,7 +356,7 @@ function Remove-StaleGSuite {
   Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $_.HomePage) -Fore Cyan
   Write-Verbose ("& $gam delete user {0}" -f $_.HomePage)
   if ($WhatIf) { return }
-  &$gam delete user $_.HomePage
+  & $gam delete user $_.HomePage
   # pause
  }
 }
