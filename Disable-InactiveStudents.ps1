@@ -145,10 +145,10 @@ function Get-StaleAD {
 function Get-ActiveAeries {
  Write-Host $MyInvocation.MyCommand.name
  $sqlParams = @{
-  Server                 = $SISServer
-  Database               = $SISDatabase
-  Credential             = $SISCredential
-  TrustServerCertificate = $true
+  Server     = $SISServer
+  Database   = $SISDatabase
+  Credential = $SISCredential
+  # TrustServerCertificate = $true
  }
  $query = Get-Content -Path '.\sql\active-students.sql' -Raw
  Invoke-SqlCmd @sqlParams -Query $query | Sort-Object employeeId
@@ -168,10 +168,10 @@ function Get-InactiveIDs ($activeAD, $activeAeries) {
 
 filter Get-AssignedDeviceUsers {
  $sqlParams = @{
-  Server                 = $SISServer
-  Database               = $SISDatabase
-  Credential             = $SISCredential
-  TrustServerCertificate = $true
+  Server     = $SISServer
+  Database   = $SISDatabase
+  Credential = $SISCredential
+  # TrustServerCertificate = $true
  }
  Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name) -Fore DarkCyan
  $sql = (Get-Content -Path .\sql\student_return_cb.sq.sql -Raw) -f $_.employeeId
@@ -213,9 +213,8 @@ function Update-Chromebooks {
   $sn = $data.serialNumber
   Write-Host ('{0},{1}' -f $sn, $MyInvocation.MyCommand.name) -Fore DarkCyan
   # ' *>$null suppresses noisy output '
-  Write-Host "& $gam print cros query `"id: $sn`" allfields"
-  # ($crosDev = & $gam print cros query "id: $sn" allfields | ConvertFrom-CSV) *>$null
-  & $gam info user cs12345@chicousd.net
+  Write-Host "& $gam print cros query `"id: $sn`" fields $crosFields"
+ ($crosDev = & $gam print cros query "id: $sn" fields $crosFields | ConvertFrom-CSV) | Out-Null
   if ($crosDev) {
    $crosDev | Set-ChromebookOU
    $crosDev | Disable-Chromebook
