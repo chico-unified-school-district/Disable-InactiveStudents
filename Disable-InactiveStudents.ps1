@@ -55,7 +55,7 @@ param (
 function Export-Report ($ExportData) {
  $exportFileName = 'Recover_Devices-' + (Get-Date -f yyyy-MM-dd)
  $ExportBody = Get-Content -Path .\html\report_export.html -Raw
- Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.name, ".\reports\$exportFileName") -Fore DarkCyan
+ Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, ".\reports\$exportFileName") -Fore DarkCyan
  if (-not(Test-Path -Path .\reports\)) { New-Item -Type Directory -Name reports -Force -WhatIf:$WhatIf }
  if (-not$WhatIf) {
   Write-Host 'Export data to Excel file'
@@ -72,7 +72,7 @@ function Format-Html {
   $data = $_.group[0]
   $stuName = $data.FirstName + ' ' + $data.LastName
   $output = @{html = $html; stuName = $stuName ; gmail = $data.mail }
-  Write-Host ('{0},{1}' -f $data.mail, $MyInvocation.MyCommand.name) -Fore DarkCyan
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $data.mail) -Fore DarkCyan
   $parentEmails = $_ | Format-ParentEmailAddresses
   $output.html = $output.html.Replace('{email}', $parentEmails)
   $output.html = $output.html.Replace('{student}', $stuName)
@@ -84,7 +84,7 @@ function Format-Html {
 function Format-ParentEmailAddresses {
  process {
   # Build a string containing any parent emails
-  Write-Host ('{0},{1}' -f $_.group[0].mail, $MyInvocation.MyCommand.name) -Fore DarkCyan
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.group[0].mail) -Fore DarkCyan
   foreach ($obj in $_.group) {
    if ( -not([DBNull]::Value).Equals($obj.ParentEmail) -and ($null -ne $obj.ParentEmail) -and ($obj.ParentEmail -like '*@*')) {
     if ($parentEmailList -notmatch $obj.ParentEmail) {
@@ -173,32 +173,32 @@ filter Get-AssignedDeviceUsers {
   Credential             = $SISCredential
   TrustServerCertificate = $true
  }
- Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name) -Fore DarkCyan
+ Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -Fore DarkCyan
  $sql = (Get-Content -Path .\sql\student_return_cb.sq.sql -Raw) -f $_.employeeId
  Invoke-SqlCmd @sqlParams -Query $sql | Group-Object
 }
 
 filter Get-SecondaryStudents {
- if ($null -eq $_.group) { return }
+ if ($null -eq $_.group) {
+  $wMsg = $MyInvocation.MyCommand.name, $_.samAccountName, $_.gecos
+  Write-Warning ('{0},[{1}],Grade: [{2}],Grade error.' -f $wMsg)
+  return
+ }
  $data = $_.group[0]
+ $msg = $MyInvocation.MyCommand.name, $data.Mail, $data.Grade
  if (($data.Grade) -and ([int]$data.Grade -is [int])) {
   if ([int]$data.Grade -ge 6) {
-   Write-Host ('{0},{1},Grade: {2}' -f $data.Mail, $MyInvocation.MyCommand.name, $data.Grade)
+   Write-Host ('{0},[{1}],Grade: [{2}]' -f $msg)
    $_
+   return
   }
-  else {
-   Write-Host ('{0},{1},Grade: {2},Primary student detected. Skipping.' -f $data.Mail, $MyInvocation.MyCommand.name, $data.Grade) -Fore Yellow
-  }
- }
- else {
-  Write-Warning ('{0},{1},Grade: {2},Grade error.' -f $data.Mail, $MyInvocation.MyCommand.name, $data.Grade)
+  Write-Host ('{0},[{1}],Grade: [{2}],Primary student detected. Skipping.' -f $msg) -Fore Yellow
  }
 }
 
 function Disable-ADObjects {
  process {
-  Write-Debug ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name)
-  Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name) -Fore DarkCyan
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -Fore DarkCyan
   Set-ADUser -Identity $_.ObjectGUID -Enabled:$false -Confirm:$false -WhatIf:$WhatIf
   $_
  }
@@ -210,9 +210,9 @@ function Update-Chromebooks {
  }
  process {
   $data = $_.group[0]
-  Write-Host ('{0},{1}' -f $data.mail, $MyInvocation.MyCommand.name) -Fore DarkCyan
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $data.mail) -Fore DarkCyan
   $sn = $data.serialNumber
-  Write-Host ('{0},{1}' -f $sn, $MyInvocation.MyCommand.name) -Fore DarkCyan
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $sn) -Fore DarkCyan
   # ' *>$null suppresses noisy output '
   Write-Host "& $gam print cros query `"id: $sn`" fields $crosFields"
  ($crosDev = & $gam print cros query "id: $sn" fields $crosFields | ConvertFrom-CSV)*>$null
@@ -231,7 +231,7 @@ function Set-ChromebookOU {
  process {
   $id = $_.deviceId
   if ($_.orgUnitPath -notmatch $targOu) {
-   Write-Host ('{0},{1}' -f $_.deviceId, $MyInvocation.MyCommand.name) -Fore DarkCyan
+   Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.deviceId) -Fore DarkCyan
    Write-Host "& $gam update cros $id ou /Chromebooks/Missing *>$null"
    if (-not$WhatIf) {
     & $gam update cros $id ou $targOu *>$null
@@ -245,7 +245,7 @@ function Disable-Chromebook {
  process {
   $id = $_.deviceId
   if ($crosDev.status -eq "ACTIVE") {
-   Write-Host ('{0},{1}' -f $_.deviceId, $MyInvocation.MyCommand.name) -Fore DarkCyan
+   Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.deviceId) -Fore DarkCyan
    Write-Host "& $gam update cros $id action disable *>$null"
    if (-not$WhatIf) {
     & $gam update cros $id action disable *>$null
@@ -271,9 +271,8 @@ function Send-AlertEmail {
   $i = 0
  }
  process {
-  Write-Host ('To: {0},CC: {1},BCc: {2}, {3}' -f ($MailTarget -join ','), ($CCAddress -join ','), ($BccAddress -join ','), $MyInvocation.MyCommand.name)
-  Write-Debug ('{0},{1}' -f ($_.gmail -join ','), $MyInvocation.MyCommand.name)
-  # Write-Debug ( $mailParams | Out-String )
+  $msg = $MyInvocation.MyCommand.name, ($MailTarget -join ','), ($CCAddress -join ','), ($BccAddress -join ',')
+  Write-Host ('To: [{0}],CC: [{1}],BCc: [{2}], [{3}]' -f $msg)
   $mailParams = @{
    To         = $MailTarget
    From       = $MailCredential.Username
@@ -292,7 +291,7 @@ function Send-AlertEmail {
   $i++
  }
  end {
-  Write-Host ('Emails sent: {0}' -f $i) -Fore DarkGreen
+  Write-Host ('Emails sent: [{0}]' -f $i) -Fore DarkGreen
  }
 }
 
@@ -301,7 +300,7 @@ function Send-ReportData {
   $AttachmentPath,
   $ExportHTML
  )
- Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.name, ($ExportMailTarget -join ',')  )
+ Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, ($ExportMailTarget -join ',')  )
  $mailParams = @{
   To         = $ExportMailTarget
   From       = $MailCredential.Username
@@ -320,7 +319,7 @@ function Send-ReportData {
 
 function Set-RandomPassword {
  Process {
-  Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name) -Fore DarkCyan
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -Fore DarkCyan
   $randomPW = ConvertTo-SecureString -String (New-RandomPassword) -AsPlainText -Force
   Set-ADAccountPassword -Identity $_.ObjectGUID -NewPassword $randomPW -Confirm:$false -WhatIf:$WhatIf
   $_
@@ -329,7 +328,7 @@ function Set-RandomPassword {
 
 function Set-GsuiteSuspended {
  process {
-  Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name) -Fore DarkCyan
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -Fore DarkCyan
   if ($_.HomePage -and -not$WhatIf) { (& $gam update user $_.HomePage suspended on) *>$null }
   $_
  }
@@ -337,7 +336,7 @@ function Set-GsuiteSuspended {
 
 function Set-UserAccountControl {
  process {
-  Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name) -Fore DarkCyan
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -Fore DarkCyan
   # Set uac to 514 (0x0202) to notify Bradford to stop access to network
   Set-ADUser -Identity $_.ObjectGUID -Replace @{UserAccountControl = 0x0202 } -Confirm:$false -WhatIf:$WhatIf
   $_
