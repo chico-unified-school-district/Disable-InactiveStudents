@@ -145,10 +145,10 @@ function Get-StaleAD {
 function Get-ActiveAeries {
  Write-Host $MyInvocation.MyCommand.name
  $sqlParams = @{
-  Server     = $SISServer
-  Database   = $SISDatabase
-  Credential = $SISCredential
-  # TrustServerCertificate = $true
+  Server                 = $SISServer
+  Database               = $SISDatabase
+  Credential             = $SISCredential
+  TrustServerCertificate = $true
  }
  $query = Get-Content -Path '.\sql\active-students.sql' -Raw
  Invoke-SqlCmd @sqlParams -Query $query | Sort-Object employeeId
@@ -168,10 +168,10 @@ function Get-InactiveIDs ($activeAD, $activeAeries) {
 
 filter Get-AssignedDeviceUsers {
  $sqlParams = @{
-  Server     = $SISServer
-  Database   = $SISDatabase
-  Credential = $SISCredential
-  # TrustServerCertificate = $true
+  Server                 = $SISServer
+  Database               = $SISDatabase
+  Credential             = $SISCredential
+  TrustServerCertificate = $true
  }
  Write-Host ('{0},{1}' -f $_.name, $MyInvocation.MyCommand.name) -Fore DarkCyan
  $sql = (Get-Content -Path .\sql\student_return_cb.sq.sql -Raw) -f $_.employeeId
@@ -179,6 +179,7 @@ filter Get-AssignedDeviceUsers {
 }
 
 filter Get-SecondaryStudents {
+ if ($null -eq $_.group) { return }
  $data = $_.group[0]
  if (($data.Grade) -and ([int]$data.Grade -is [int])) {
   if ([int]$data.Grade -ge 6) {
@@ -214,7 +215,7 @@ function Update-Chromebooks {
   Write-Host ('{0},{1}' -f $sn, $MyInvocation.MyCommand.name) -Fore DarkCyan
   # ' *>$null suppresses noisy output '
   Write-Host "& $gam print cros query `"id: $sn`" fields $crosFields"
- ($crosDev = & $gam print cros query "id: $sn" fields $crosFields | ConvertFrom-CSV) | Out-Null
+ ($crosDev = & $gam print cros query "id: $sn" fields $crosFields | ConvertFrom-CSV)*>$null
   if ($crosDev) {
    $crosDev | Set-ChromebookOU
    $crosDev | Disable-Chromebook
@@ -405,9 +406,6 @@ Send-AlertEmail
 
 # Remove old student accounts
 Get-StaleAD | Remove-StaleAD | Remove-StaleGsuite
-
-# for testing
-# $adObjs | Get-AssignedDeviceUsers | Get-SecondaryStudents | Format-Html | Send-AlertEmail
 
 Clear-SessionData
 Show-TestRun
