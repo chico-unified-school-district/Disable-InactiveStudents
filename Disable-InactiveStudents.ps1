@@ -51,11 +51,16 @@ param (
  [Alias('wi')]
  [SWITCH]$WhatIf
 )
+# Output Colors
+$info = 'Blue'
+$alert = 'Red'
+$get = 'Green'
+$update = 'Magenta'
 # Script Functions =========================================================================
 function Export-Report ($ExportData) {
  $exportFileName = 'Recover_Devices-' + (Get-Date -f yyyy-MM-dd)
  $ExportBody = Get-Content -Path .\html\report_export.html -Raw
- Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, ".\reports\$exportFileName") -Fore DarkCyan
+ Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, ".\reports\$exportFileName") -F DarkCyan
  if (-not(Test-Path -Path .\reports\)) { New-Item -Type Directory -Name reports -Force -WhatIf:$WhatIf }
  if (-not$WhatIf) {
   Write-Host 'Export data to Excel file'
@@ -72,7 +77,7 @@ function Format-Html {
   $data = $_.group[0]
   $stuName = $data.FirstName + ' ' + $data.LastName
   $output = @{html = $html; stuName = $stuName ; gmail = $data.mail }
-  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $data.mail) -Fore DarkCyan
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $data.mail) -F DarkCyan
   $parentEmails = $_ | Format-ParentEmailAddresses
   $output.html = $output.html.Replace('{email}', $parentEmails)
   $output.html = $output.html.Replace('{student}', $stuName)
@@ -84,7 +89,7 @@ function Format-Html {
 function Format-ParentEmailAddresses {
  process {
   # Build a string containing any parent emails
-  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.group[0].mail) -Fore DarkCyan
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.group[0].mail) -F DarkCyan
   foreach ($obj in $_.group) {
    if ( -not([DBNull]::Value).Equals($obj.ParentEmail) -and ($null -ne $obj.ParentEmail) -and ($obj.ParentEmail -like '*@*')) {
     if ($parentEmailList -notmatch $obj.ParentEmail) {
@@ -102,7 +107,6 @@ function Format-ParentEmailAddresses {
 }
 
 function Get-ActiveAD {
- Write-Host $MyInvocation.MyCommand.name
  $properties = 'AccountExpirationDate', 'EmployeeID', 'HomePage', 'info', 'title'
  $allStuParams = @{
   Filter     = { (homepage -like "*@chicousd.net*") -and (employeeID -like "*") }
@@ -117,12 +121,11 @@ function Get-ActiveAD {
   $_.AccountExpirationDate -isnot [datetime] -and
   $_.Enabled -eq $True
  }
- Write-Host ('{0},Count: {1}' -f $MyInvocation.MyCommand.Name, $objs.count) -Fore Green
+ Write-Host ('{0},Count: [{1}]' -f $MyInvocation.MyCommand.Name, $objs.count) -F $get
  $objs | Sort-Object employeeId
 }
 
 function Get-StaleAD {
- Write-Host $MyInvocation.MyCommand.name
  $cutOff = (Get-Date).AddMonths(-9)
  $properties = 'LastLogonDate', 'EmployeeID', 'HomePage', 'title', 'WhenCreated'
  $allStuParams = @{
@@ -137,13 +140,12 @@ function Get-StaleAD {
   $_.LastLogonDate -lt $cutOff -and
   $_.WhenCreated -lt $cutOff
  }
- Write-Host ('{0},Count: {1}' -f $MyInvocation.MyCommand.Name, $objs.count) -Fore Green
- Start-Sleep 3
+ Write-Host ('{0},Count: {1}' -f $MyInvocation.MyCommand.Name, $objs.count) -F $get
+ # Start-Sleep 3 # why?
  $objs | Sort-Object employeeId
 }
 
 function Get-ActiveAeries {
- Write-Host $MyInvocation.MyCommand.name
  $sqlParams = @{
   Server                 = $SISServer
   Database               = $SISDatabase
@@ -151,7 +153,9 @@ function Get-ActiveAeries {
   TrustServerCertificate = $true
  }
  $query = Get-Content -Path '.\sql\active-students.sql' -Raw
- Invoke-SqlCmd @sqlParams -Query $query | Sort-Object employeeId
+ $results = Invoke-SqlCmd @sqlParams -Query $query | Sort-Object employeeId
+ Write-Host ('{0},Count: [{1}]' -f $MyInvocation.MyCommand.name, $reults.count) -F $get
+ $results
 }
 
 function Get-InactiveADObj ($activeAD, $inactiveIDs) {
@@ -161,7 +165,7 @@ function Get-InactiveADObj ($activeAD, $inactiveIDs) {
 }
 
 function Get-InactiveIDs ($activeAD, $activeAeries) {
- Write-Host $MyInvocation.MyCommand.name
+ Write-Host $MyInvocation.MyCommand.name -F $get
  Compare-Object -ReferenceObject $activeAeries -DifferenceObject $activeAD -Property employeeId |
  Where-Object { $_.SideIndicator -eq '=>' }
 }
@@ -173,7 +177,7 @@ filter Get-AssignedDeviceUsers {
   Credential             = $SISCredential
   TrustServerCertificate = $true
  }
- Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -Fore DarkCyan
+ Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -F $get
  $sql = (Get-Content -Path .\sql\student_return_cb.sq.sql -Raw) -f $_.employeeId
  Invoke-SqlCmd @sqlParams -Query $sql | Group-Object
 }
@@ -188,17 +192,17 @@ filter Get-SecondaryStudents {
  $msg = $MyInvocation.MyCommand.name, $data.Mail, $data.Grade
  if (($data.Grade) -and ([int]$data.Grade -is [int])) {
   if ([int]$data.Grade -ge 6) {
-   Write-Host ('{0},[{1}],Grade: [{2}]' -f $msg)
+   Write-Host ('{0},[{1}],Grade: [{2}]' -f $msg) -F $get
    $_
    return
   }
-  Write-Host ('{0},[{1}],Grade: [{2}],Primary student detected. Skipping.' -f $msg) -Fore Yellow
+  Write-Host ('{0},[{1}],Grade: [{2}],Primary student detected. Skipping.' -f $msg) -F Yellow
  }
 }
 
 function Disable-ADObjects {
  process {
-  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -Fore DarkCyan
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -F $update
   Set-ADUser -Identity $_.ObjectGUID -Enabled:$false -Confirm:$false -WhatIf:$WhatIf
   $_
  }
@@ -206,16 +210,13 @@ function Disable-ADObjects {
 
 function Update-Chromebooks {
  begin {
-  $cmdName = $MyInvocation.MyCommand.name
   $crosFields = 'serialNumber,orgUnitPath,deviceId,status'
  }
  process {
-  $data = $_.group[0]
-  Write-Host ('{0},[{1}]' -f $cmdName, $data.mail) -Fore DarkCyan
-  $sn = $data.serialNumber
-  Write-Host ('{0},[{1}]' -f $cmdName, $sn) -Fore DarkCyan
-  # ' *>$null suppresses noisy output '
-  Write-Host "$cmdName,[& $gam print cros query `"id: $sn`" fields $crosFields]"
+  if ($null -eq $_.group) { return }
+  $data, $sn = $_.group[0], $data.serialNumber
+  $msg = $MyInvocation.MyCommand.name, $data.mail, $sn, "& $gam print cros query `"id: $sn`" fields $crosFields"
+  Write-Host ('{0},[{1}],[{2}]' -f $msg) -F $update
  ($crosDev = & $gam print cros query "id: $sn" fields $crosFields | ConvertFrom-CSV)*>$null
   if ($crosDev) {
    $crosDev | Set-ChromebookOU
@@ -233,7 +234,7 @@ function Set-ChromebookOU {
   $id = $_.deviceId
   if ($_.orgUnitPath -match $targOu) { return } # Skip is OU is correct
   $msg = $MyInvocation.MyCommand.name, $_.deviceId, "& $gam update cros $id ou $targOu"
-  Write-Host ('{0},[{1}],[{2}]' -f $msg) -Fore Dark
+  Write-Host ('{0},[{1}],[{2}]' -f $msg) -F $update
   if ($WhatIf) { return }
   & $gam update cros $id ou $targOu *>$null
  }
@@ -245,7 +246,7 @@ function Disable-Chromebook {
   $id = $_.deviceId
   if ($crosDev.status -ne "ACTIVE") { return }
   $msg = $MyInvocation.MyCommand.name, $_.deviceId, "& $gam update cros $id action disable"
-  Write-Host ('{0},[{1}],[{2}]' -f $msg) -Fore DarkCyan
+  Write-Host ('{0},[{1}],[{2}]' -f $msg) -F DarkCyan
   if ($WhatIf) { return }
   & $gam update cros $id action disable *>$null
  }
@@ -255,7 +256,7 @@ function Remove-GsuiteLicense {
  process {
   #SKU: 1010310003 = Google Workspace for Education Plus - Legacy (Student)
   $cmd = "& $gam user {0} delete license 1010310003" -f $_.HomePage
-  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $cmd) -Fore DarkCyan
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $cmd) -F $update
   if ($_.HomePage -and -not$WhatIf) { (& $gam user $_.HomePage delete license 1010310003) *>$null }
   $_
  }
@@ -268,7 +269,7 @@ function Send-AlertEmail {
  }
  process {
   $msg = $MyInvocation.MyCommand.name, ($MailTarget -join ','), ($CCAddress -join ','), ($BccAddress -join ',')
-  Write-Host ('To: [{0}],CC: [{1}],BCc: [{2}], [{3}]' -f $msg)
+  Write-Host ('{0},To: [{1}],CC: [{2}],BCc: [{3}]' -f $msg) -F $info
   $mailParams = @{
    To         = $MailTarget
    From       = $MailCredential.Username
@@ -287,7 +288,7 @@ function Send-AlertEmail {
   $i++
  }
  end {
-  Write-Host ('Emails sent: [{0}]' -f $i) -Fore DarkGreen
+  Write-Host ('Emails sent: [{0}]' -f $i) -F DarkGreen
  }
 }
 
@@ -296,7 +297,7 @@ function Send-ReportData {
   $AttachmentPath,
   $ExportHTML
  )
- Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, ($ExportMailTarget -join ',')  )
+ Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, ($ExportMailTarget -join ',')  ) -F $info
  $mailParams = @{
   To         = $ExportMailTarget
   From       = $MailCredential.Username
@@ -315,7 +316,7 @@ function Send-ReportData {
 
 function Set-RandomPassword {
  Process {
-  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -Fore DarkCyan
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -F $update
   $randomPW = ConvertTo-SecureString -String (New-RandomPassword) -AsPlainText -Force
   Set-ADAccountPassword -Identity $_.ObjectGUID -NewPassword $randomPW -Confirm:$false -WhatIf:$WhatIf
   $_
@@ -324,7 +325,7 @@ function Set-RandomPassword {
 
 function Set-GsuiteSuspended {
  process {
-  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -Fore DarkCyan
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -F $update
   if ($_.HomePage -and -not$WhatIf) { (& $gam update user $_.HomePage suspended on) *>$null }
   $_
  }
@@ -332,7 +333,7 @@ function Set-GsuiteSuspended {
 
 function Set-UserAccountControl {
  process {
-  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -Fore DarkCyan
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -F $update
   # Set uac to 514 (0x0202) to notify Bradford to stop access to network
   Set-ADUser -Identity $_.ObjectGUID -Replace @{UserAccountControl = 0x0202 } -Confirm:$false -WhatIf:$WhatIf
   $_
@@ -341,7 +342,7 @@ function Set-UserAccountControl {
 
 function Remove-StaleAD {
  process {
-  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $_.samaccountname) -Fore Yellow
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $_.samaccountname) -F $alert
   Remove-ADObject -Identity $_.ObjectGUID -Recursive -Confirm:$false -WhatIf:$WhatIf
   $_
  }
@@ -349,7 +350,7 @@ function Remove-StaleAD {
 
 function Remove-StaleGSuite {
  process {
-  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $_.HomePage) -Fore Cyan
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $_.HomePage) -F $alert
   Write-Verbose ("& $gam delete user {0}" -f $_.HomePage)
   if ($WhatIf) { return }
   & $gam delete user $_.HomePage
