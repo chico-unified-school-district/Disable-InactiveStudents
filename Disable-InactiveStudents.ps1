@@ -206,15 +206,16 @@ function Disable-ADObjects {
 
 function Update-Chromebooks {
  begin {
+  $cmdName = $MyInvocation.MyCommand.name
   $crosFields = 'serialNumber,orgUnitPath,deviceId,status'
  }
  process {
   $data = $_.group[0]
-  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $data.mail) -Fore DarkCyan
+  Write-Host ('{0},[{1}]' -f $cmdName, $data.mail) -Fore DarkCyan
   $sn = $data.serialNumber
-  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $sn) -Fore DarkCyan
+  Write-Host ('{0},[{1}]' -f $cmdName, $sn) -Fore DarkCyan
   # ' *>$null suppresses noisy output '
-  Write-Host "& $gam print cros query `"id: $sn`" fields $crosFields"
+  Write-Host "$cmdName,[& $gam print cros query `"id: $sn`" fields $crosFields]"
  ($crosDev = & $gam print cros query "id: $sn" fields $crosFields | ConvertFrom-CSV)*>$null
   if ($crosDev) {
    $crosDev | Set-ChromebookOU
@@ -230,28 +231,23 @@ function Set-ChromebookOU {
  }
  process {
   $id = $_.deviceId
-  if ($_.orgUnitPath -notmatch $targOu) {
-   Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.deviceId) -Fore DarkCyan
-   Write-Host "& $gam update cros $id ou /Chromebooks/Missing *>$null"
-   if (-not$WhatIf) {
-    & $gam update cros $id ou $targOu *>$null
-   }
-  }
-  else { Write-Verbose "$id,Skipping. OrgUnitPath already $targOu" }
+  if ($_.orgUnitPath -match $targOu) { return } # Skip is OU is correct
+  $msg = $MyInvocation.MyCommand.name, $_.deviceId, "& $gam update cros $id ou $targOu"
+  Write-Host ('{0},[{1}],[{2}]' -f $msg) -Fore Dark
+  if ($WhatIf) { return }
+  & $gam update cros $id ou $targOu *>$null
  }
 }
+
 
 function Disable-Chromebook {
  process {
   $id = $_.deviceId
-  if ($crosDev.status -eq "ACTIVE") {
-   Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.deviceId) -Fore DarkCyan
-   Write-Host "& $gam update cros $id action disable *>$null"
-   if (-not$WhatIf) {
-    & $gam update cros $id action disable *>$null
-   }
-  }
-  else { Write-Verbose "$id,Skipping. Status already `'Disabled`'" }
+  if ($crosDev.status -ne "ACTIVE") { return }
+  $msg = $MyInvocation.MyCommand.name, $_.deviceId, "& $gam update cros $id action disable"
+  Write-Host ('{0},[{1}],[{2}]' -f $msg) -Fore DarkCyan
+  if ($WhatIf) { return }
+  & $gam update cros $id action disable *>$null
  }
 }
 
