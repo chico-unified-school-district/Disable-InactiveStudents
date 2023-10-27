@@ -216,7 +216,7 @@ function Update-Chromebooks {
   if ($null -eq $_.group) { return }
   $data, $sn = $_.group[0], $data.serialNumber
   $msg = $MyInvocation.MyCommand.name, $data.mail, $sn, "& $gam print cros query `"id: $sn`" fields $crosFields"
-  Write-Host ('{0},[{1}],[{2}]' -f $msg) -F $update
+  Write-Host ('{0},[{1}],[{2}],[{3}]' -f $msg) -F $update
  ($crosDev = & $gam print cros query "id: $sn" fields $crosFields | ConvertFrom-CSV)*>$null
   if ($crosDev) {
    $crosDev | Set-ChromebookOU
@@ -233,7 +233,7 @@ function Set-ChromebookOU {
  process {
   $id = $_.deviceId
   if ($_.orgUnitPath -match $targOu) { return } # Skip is OU is correct
-  $msg = $MyInvocation.MyCommand.name, $_.deviceId, "& $gam update cros $id ou $targOu"
+  $msg = $MyInvocation.MyCommand.name, $_.sn, "& $gam update cros $id ou $targOu"
   Write-Host ('{0},[{1}],[{2}]' -f $msg) -F $update
   if ($WhatIf) { return }
   & $gam update cros $id ou $targOu *>$null
@@ -245,7 +245,7 @@ function Disable-Chromebook {
  process {
   $id = $_.deviceId
   if ($crosDev.status -ne "ACTIVE") { return }
-  $msg = $MyInvocation.MyCommand.name, $_.deviceId, "& $gam update cros $id action disable"
+  $msg = $MyInvocation.MyCommand.name, $_.sn, "& $gam update cros $id action disable"
   Write-Host ('{0},[{1}],[{2}]' -f $msg) -F DarkCyan
   if ($WhatIf) { return }
   & $gam update cros $id action disable *>$null
