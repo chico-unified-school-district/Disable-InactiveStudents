@@ -154,7 +154,7 @@ function Get-ActiveAeries {
  }
  $query = Get-Content -Path '.\sql\active-students.sql' -Raw
  $results = Invoke-SqlCmd @sqlParams -Query $query | Sort-Object employeeId
- Write-Host ('{0},Count: [{1}]' -f $MyInvocation.MyCommand.name, $reults.count) -F $get
+ Write-Host ('{0},Count: [{1}]' -f $MyInvocation.MyCommand.name, $results.count) -F $get
  $results
 }
 
