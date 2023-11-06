@@ -126,7 +126,7 @@ function Get-ActiveAD {
 }
 
 function Get-StaleAD {
- $cutOff = (Get-Date).AddMonths(-9)
+ $cutOff = (Get-Date).AddMonths(-9) # Ask Director of IT before changing.
  $properties = 'LastLogonDate', 'EmployeeID', 'HomePage', 'title', 'WhenCreated'
  $allStuParams = @{
   Filter     = { (homepage -like "*@*") -and (employeeID -like "*") -and (Enabled -eq 'False') }
