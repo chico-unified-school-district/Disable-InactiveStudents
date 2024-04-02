@@ -176,6 +176,13 @@ filter Get-AssignedDeviceUsers {
  Invoke-SqlCmd @sqlParams -Query $sql | Group-Object
 }
 
+function Get-InactiveSeniors ($sqlParams) {
+ $query = Get-Content -Path '.\sql\get-inactive-senioirs.sql' -Raw
+ $results = Invoke-SqlCmd @sqlParams -Query $query | Sort-Object employeeId
+ Write-Host ('{0},Count: [{1}]' -f $MyInvocation.MyCommand.name, $results.count) -F $get
+ $results
+}
+
 filter Get-SecondaryStudents {
  if ($null -eq $_.group) {
   $wMsg = $MyInvocation.MyCommand.name, $_.samAccountName, $_.gecos
@@ -210,8 +217,6 @@ function Get-StaleLastLogins {
   $_.WhenCreated -lt $cutOff
  }
  Write-Host ('{0},Count: {1}' -f $MyInvocation.MyCommand.Name, $objs.count) -F $get
- pause
- # Start-Sleep 3 # why?
  $objs | Sort-Object employeeId
 }
 
@@ -257,7 +262,9 @@ function Set-ChromebookOU {
 
 function Skip-SaturdayResets {
  process {
-  if ($_.LastLogonDate -and ((get-date $_.LastLogonDate).dayofweek -eq 'Saturday')) { return }
+  if ($null -eq $_.LastLogonDate) { return }
+  Write-Host (get-date $_.LastLogonDate).dayofweek -f Green
+  if ((get-date $_.LastLogonDate).dayofweek -eq 'Saturday') { return }
   $_
  }
 }
@@ -379,13 +386,6 @@ function Remove-StaleGSuite {
  }
 }
 
-function Get-InactiveSeniors ($sqlParams) {
- $query = Get-Content -Path '.\sql\get-inactive-senioirs.sql' -Raw
- $results = Invoke-SqlCmd @sqlParams -Query $query | Sort-Object employeeId
- Write-Host ('{0},Count: [{1}]' -f $MyInvocation.MyCommand.name, $results.count) -F $get
- $results
-}
-
 function Show-Obj {
  begin { $i = 0 }
  Process {
@@ -459,7 +459,7 @@ Send-AlertEmail |
 Show-Obj
 
 # Password Randomizer - only for users disbled and not logged in for over 30 days.
-Get-StaleLastLogins | Skip-SaturdayResets | Set-RandomPassword | Show-Obj
+# Get-StaleLastLogins | Skip-SaturdayResets | Set-RandomPassword | Show-Obj
 
 # Remove old student accounts
 Get-StaleAD | Remove-StaleAD | Remove-StaleGsuite | Show-Obj
