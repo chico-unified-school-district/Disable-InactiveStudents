@@ -255,6 +255,12 @@ function Set-ChromebookOU {
  }
 }
 
+function Skip-SaturdayResets {
+ process {
+  if ($_.LastLogonDate -and ((get-date $_.LastLogonDate).dayofweek -eq 'Saturday')) { return }
+  $_
+ }
+}
 
 function Disable-Chromebook {
  process {
@@ -427,39 +433,36 @@ $sqlParams = @{
  TrustServerCertificate = $true
 }
 
-# $activeAD = Get-ActiveAD
-# $activeAeries = Get-ActiveAeries $sqlParams
-# $inactiveIDs = Get-InactiveIDs -activeAD $activeAD -activeAeries $activeAeries
+$activeAD = Get-ActiveAD
+$activeAeries = Get-ActiveAeries $sqlParams
+$inactiveIDs = Get-InactiveIDs -activeAD $activeAD -activeAeries $activeAeries
 
-# $inactiveSeniors = Get-InactiveSeniors $sqlParams
+$inactiveSeniors = Get-InactiveSeniors $sqlParams
 
-# $aDObjs = Get-InactiveADObj -activeAD $activeAD -inactiveIDs $inactiveIDs
+$aDObjs = Get-InactiveADObj -activeAD $activeAD -inactiveIDs $inactiveIDs
 
-# Export-Report -ExportData (($aDObjs | Get-AssignedDeviceUsers).group)
+Export-Report -ExportData (($aDObjs | Get-AssignedDeviceUsers).group)
 
 # Disable inactive student accounts
-# $adObjs |
-# Skip-SeniorGrads $inactiveSeniors |
-# Disable-ADObjects |
-# Set-UserAccountControl |
-# # Set-RandomPassword |
-# Set-GsuiteSuspended |
-# Remove-GsuiteLicense |
-# Get-AssignedDeviceUsers |
-# Update-Chromebooks |
-# Get-SecondaryStudents |
-# Format-Html |
-# Send-AlertEmail |
-# Show-Obj
-
-#TODO
-# New Section for Password Randomizer - only for users disbled and not logged in for over 30 days.
-Get-StaleLastLogins |
+$adObjs |
+Skip-SeniorGrads $inactiveSeniors |
+Disable-ADObjects |
+Set-UserAccountControl |
 # Set-RandomPassword |
+Set-GsuiteSuspended |
+Remove-GsuiteLicense |
+Get-AssignedDeviceUsers |
+Update-Chromebooks |
+Get-SecondaryStudents |
+Format-Html |
+Send-AlertEmail |
 Show-Obj
 
+# Password Randomizer - only for users disbled and not logged in for over 30 days.
+Get-StaleLastLogins | Skip-SaturdayResets | Set-RandomPassword | Show-Obj
+
 # Remove old student accounts
-# Get-StaleAD | Remove-StaleAD | Remove-StaleGsuite
+Get-StaleAD | Remove-StaleAD | Remove-StaleGsuite | Show-Obj
 
 Clear-SessionData
 Show-TestRun
