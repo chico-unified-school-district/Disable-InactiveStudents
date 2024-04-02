@@ -145,13 +145,7 @@ function Get-StaleAD {
  $objs | Sort-Object employeeId
 }
 
-function Get-ActiveAeries {
- $sqlParams = @{
-  Server                 = $SISServer
-  Database               = $SISDatabase
-  Credential             = $SISCredential
-  TrustServerCertificate = $true
- }
+function Get-ActiveAeries ($sqlParams) {
  $query = Get-Content -Path '.\sql\active-students.sql' -Raw
  $results = Invoke-SqlCmd @sqlParams -Query $query | Sort-Object employeeId
  Write-Host ('{0},Count: [{1}]' -f $MyInvocation.MyCommand.name, $results.count) -F $get
@@ -198,6 +192,27 @@ filter Get-SecondaryStudents {
   }
   Write-Host ('{0},[{1}],Grade: [{2}],Primary student detected. Skipping.' -f $msg) -F Yellow
  }
+}
+
+function Get-StaleLastLogins {
+ $cutOff = (Get-Date).AddMonths(-1) # Ask Director of IT before changing.
+ $properties = 'LastLogonDate', 'EmployeeID', 'HomePage', 'title', 'WhenCreated'
+ $allStuParams = @{
+  Filter     = { (homepage -like "*@*") -and (employeeID -like "*") -and (Enabled -eq 'False') }
+  SearchBase = $RootOU
+  Properties = $properties
+ }
+ $objs = Get-ADUser @allStuParams | Where-Object {
+  $_.samaccountname -match "^\b[a-zA-Z][a-zA-Z]\d{5,6}\b$" -and
+  $_.employeeID -match "^\d{5,6}$" -and
+  $_.title -notmatch 'test' -and
+  $_.LastLogonDate -lt $cutOff -and
+  $_.WhenCreated -lt $cutOff
+ }
+ Write-Host ('{0},Count: {1}' -f $MyInvocation.MyCommand.Name, $objs.count) -F $get
+ pause
+ # Start-Sleep 3 # why?
+ $objs | Sort-Object employeeId
 }
 
 function Disable-ADObjects {
@@ -358,6 +373,32 @@ function Remove-StaleGSuite {
  }
 }
 
+function Get-InactiveSeniors ($sqlParams) {
+ $query = Get-Content -Path '.\sql\get-inactive-senioirs.sql' -Raw
+ $results = Invoke-SqlCmd @sqlParams -Query $query | Sort-Object employeeId
+ Write-Host ('{0},Count: [{1}]' -f $MyInvocation.MyCommand.name, $results.count) -F $get
+ $results
+}
+
+function Show-Obj {
+ begin { $i = 0 }
+ Process {
+  $i++
+  Write-Verbose ($i, $MyInvocation.MyCommand.Name, $_ | Out-String)
+  Write-Debug 'Proceed?'
+ }
+}
+
+function Skip-SeniorGrads ($inactiveSeniors) {
+ process {
+  if ($inactiveSeniors.permId -contains $_.EmployeeID) {
+   $msg = $MyInvocation.MyCommand.Name, $_.EmployeeID
+   return (Write-Host ('{0},{1},Qualifying Senior Detected. Skipping.' -f $msg))
+  }
+  $_
+ }
+}
+
 # =========================================================================================
 # Imported Functions
 . .\lib\Clear-SessionData.ps1
@@ -379,29 +420,46 @@ $dc = Select-DomainController $DomainControllers
 $cmdlets = 'Get-ADUser', 'Set-ADUser', 'Set-ADAccountPassword', 'Remove-ADobject'
 New-ADSession -dc $dc -cmdlets $cmdlets -cred $ADCredential
 
-$activeAD = Get-ActiveAD
-$activeAeries = Get-ActiveAeries
-$inactiveIDs = Get-InactiveIDs -activeAD $activeAD -activeAeries $activeAeries
+$sqlParams = @{
+ Server                 = $SISServer
+ Database               = $SISDatabase
+ Credential             = $SISCredential
+ TrustServerCertificate = $true
+}
 
-$aDObjs = Get-InactiveADObj -activeAD $activeAD -inactiveIDs $inactiveIDs
+# $activeAD = Get-ActiveAD
+# $activeAeries = Get-ActiveAeries $sqlParams
+# $inactiveIDs = Get-InactiveIDs -activeAD $activeAD -activeAeries $activeAeries
 
-Export-Report -ExportData (($aDObjs | Get-AssignedDeviceUsers).group)
+# $inactiveSeniors = Get-InactiveSeniors $sqlParams
+
+# $aDObjs = Get-InactiveADObj -activeAD $activeAD -inactiveIDs $inactiveIDs
+
+# Export-Report -ExportData (($aDObjs | Get-AssignedDeviceUsers).group)
 
 # Disable inactive student accounts
-$adObjs |
-Disable-ADObjects |
-Set-UserAccountControl |
-Set-RandomPassword |
-Set-GsuiteSuspended |
-Remove-GsuiteLicense |
-Get-AssignedDeviceUsers |
-Update-Chromebooks |
-Get-SecondaryStudents |
-Format-Html |
-Send-AlertEmail
+# $adObjs |
+# Skip-SeniorGrads $inactiveSeniors |
+# Disable-ADObjects |
+# Set-UserAccountControl |
+# # Set-RandomPassword |
+# Set-GsuiteSuspended |
+# Remove-GsuiteLicense |
+# Get-AssignedDeviceUsers |
+# Update-Chromebooks |
+# Get-SecondaryStudents |
+# Format-Html |
+# Send-AlertEmail |
+# Show-Obj
+
+#TODO
+# New Section for Password Randomizer - only for users disbled and not logged in for over 30 days.
+Get-StaleLastLogins |
+# Set-RandomPassword |
+Show-Obj
 
 # Remove old student accounts
-Get-StaleAD | Remove-StaleAD | Remove-StaleGsuite
+# Get-StaleAD | Remove-StaleAD | Remove-StaleGsuite
 
 Clear-SessionData
 Show-TestRun
