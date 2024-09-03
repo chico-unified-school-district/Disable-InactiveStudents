@@ -51,11 +51,13 @@ param (
  [Alias('wi')]
  [SWITCH]$WhatIf
 )
+
 # Output Colors
 $info = 'Blue'
 $alert = 'Red'
 $get = 'Green'
 $update = 'Magenta'
+
 # Script Functions =========================================================================
 function Export-Report ($ExportData) {
  $exportFileName = 'Recover_Devices-' + (Get-Date -f yyyy-MM-dd)
@@ -93,12 +95,12 @@ function Format-ParentEmailAddresses {
   foreach ($obj in $_.group) {
    if ( -not([DBNull]::Value).Equals($obj.ParentEmail) -and ($null -ne $obj.ParentEmail) -and ($obj.ParentEmail -like '*@*')) {
     if ($parentEmailList -notmatch $obj.ParentEmail) {
-     $parentEmailList = $obj.ParentEmail, $parentEmailList -join ', '
+     $parentEmailList = $obj.ParentEmail, $parentEmailList -join '; '
     }
    }
    if ( -not([DBNull]::Value).Equals($obj.ParentPortalEmail) ) {
     if ($parentEmailList -notmatch $obj.ParentPortalEmail) {
-     $parentEmailList = $obj.ParentPortalEmail, $parentEmailList -join ', '
+     $parentEmailList = $obj.ParentPortalEmail, $parentEmailList -join '; '
     }
    }
   }
