@@ -5,7 +5,7 @@ function New-RandomPassword {
   return [String]$characters[$random]
  }
  $chars = 'ABCDEFGHKLMNOPRSTUVWXYZabcdefghiklmnoprstuvwxyz1234567890!$#%&*@'
- do { $pw = (Get-RandomCharacters -length 16 -characters $chars) }
+ do { $pw = (Get-RandomCharacters -length 30 -characters $chars) }
  until ($pw -match '[A-Za-z\d!$#%&*@]') # Make sure minimum criteria met using regex p@ttern.
  $pw # Output random password
 }

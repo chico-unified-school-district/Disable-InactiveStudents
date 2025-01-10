@@ -123,12 +123,12 @@ function Get-ActiveAD {
   $_.AccountExpirationDate -isnot [datetime] -and
   $_.Enabled -eq $True
  }
- Write-Host ('{0},Count: [{1}]' -f $MyInvocation.MyCommand.Name, $objs.count) -F $get
+ Write-Host ('{0},Count: [{1}]' -f $MyInvocation.MyCommand.Name, @($objs).count) -F $get
  $objs | Sort-Object employeeId
 }
 
-function Get-StaleAD {
- $cutOff = (Get-Date).AddMonths(-9) # Ask Director of IT before changing.
+function Get-SuperStaleAD {
+ $cutOff = (Get-Date).AddMonths(-18) # Ask Director of IT before changing.
  $properties = 'LastLogonDate', 'EmployeeID', 'HomePage', 'title', 'WhenCreated'
  $allStuParams = @{
   Filter     = { (homepage -like "*@*") -and (employeeID -like "*") -and (Enabled -eq 'False') }
@@ -142,7 +142,7 @@ function Get-StaleAD {
   $_.LastLogonDate -lt $cutOff -and
   $_.WhenCreated -lt $cutOff
  }
- Write-Host ('{0},Count: {1}' -f $MyInvocation.MyCommand.Name, $objs.count) -F $get
+ Write-Host ('{0},Count: {1}' -f $MyInvocation.MyCommand.Name, @($objs).count) -F $get
  # Start-Sleep 3 # why?
  $objs | Sort-Object employeeId
 }
@@ -179,9 +179,9 @@ filter Get-AssignedDeviceUsers {
 }
 
 function Get-InactiveSeniors ($sqlParams) {
- $query = Get-Content -Path '.\sql\get-inactive-senioirs.sql' -Raw
+ $query = Get-Content -Path '.\sql\get-inactive-seniors.sql' -Raw
  $results = Invoke-SqlCmd @sqlParams -Query $query | Sort-Object employeeId
- Write-Host ('{0},Count: [{1}]' -f $MyInvocation.MyCommand.name, $results.count) -F $get
+ Write-Host ('{0},Count: [{1}]' -f $MyInvocation.MyCommand.name, @($results).count) -F $get
  $results
 }
 
@@ -203,7 +203,7 @@ filter Get-SecondaryStudents {
  }
 }
 
-function Get-StaleLastLogins {
+function Get-StaleAD {
  $cutOff = (Get-Date).AddMonths(-1) # Ask Director of IT before changing.
  $properties = 'LastLogonDate', 'EmployeeID', 'HomePage', 'title', 'WhenCreated'
  $allStuParams = @{
@@ -218,7 +218,7 @@ function Get-StaleLastLogins {
   $_.LastLogonDate -lt $cutOff -and
   $_.WhenCreated -lt $cutOff
  }
- Write-Host ('{0},Count: {1}' -f $MyInvocation.MyCommand.Name, $objs.count) -F $get
+ Write-Host ('{0},Count: {1}' -f $MyInvocation.MyCommand.Name, @($objs).count) -F $get
  $objs | Sort-Object employeeId
 }
 
@@ -236,7 +236,8 @@ function Update-Chromebooks {
  }
  process {
   if ($null -eq $_.group) { return }
-  $data, $sn = $_.group[0], $data.serialNumber
+  $data = $_.group[0]
+  $sn = $data.serialNumber
   $msg = $MyInvocation.MyCommand.name, $data.mail, $sn, "& $gam print cros query `"id: $sn`" fields $crosFields"
   Write-Host ('{0},[{1}],[{2}],[{3}]' -f $msg) -F $update
  ($crosDev = & $gam print cros query "id: $sn" fields $crosFields | ConvertFrom-CSV)*>$null
@@ -285,9 +286,10 @@ function Disable-Chromebook {
 function Remove-GsuiteLicense {
  process {
   #SKU: 1010310003 = Google Workspace for Education Plus - Legacy (Student)
-  $cmd = "& $gam user {0} delete license 1010310003" -f $_.HomePage
+  #SKU: 1010310008 = Google Workspace for Education Plus
+  $cmd = "& $gam user {0} delete license 1010310008" -f $_.HomePage
   Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $cmd) -F $update
-  if ($_.HomePage -and -not$WhatIf) { (& $gam user $_.HomePage delete license 1010310003) *>$null }
+  if ($_.HomePage -and -not$WhatIf) { (& $gam user $_.HomePage delete license 1010310008) *>$null }
   $_
  }
 }
@@ -346,6 +348,7 @@ function Send-ReportData {
 
 function Set-RandomPassword {
  Process {
+  if ($_.randomPW -ne $true) { return $_ }
   Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -F $update
   $randomPW = ConvertTo-SecureString -String (New-RandomPassword) -AsPlainText -Force
   Set-ADAccountPassword -Identity $_.ObjectGUID -NewPassword $randomPW -Confirm:$false -WhatIf:$WhatIf
@@ -393,7 +396,7 @@ function Show-Obj {
  Process {
   $i++
   Write-Verbose ($i, $MyInvocation.MyCommand.Name, $_ | Out-String)
-  Write-Debug 'Proceed?'
+  # Write-Debug 'Proceed?'
  }
 }
 
@@ -439,19 +442,19 @@ $activeAD = Get-ActiveAD
 $activeAeries = Get-ActiveAeries $sqlParams
 $inactiveIDs = Get-InactiveIDs -activeAD $activeAD -activeAeries $activeAeries
 
-$inactiveSeniors = Get-InactiveSeniors $sqlParams
+$inactiveSeniors = Get-InactiveSeniors $sqlParams -Query (Get-Content .\sql\get-inactive-seniors.sql -Raw)
 
 $aDObjs = Get-InactiveADObj -activeAD $activeAD -inactiveIDs $inactiveIDs
 
 Export-Report -ExportData (($aDObjs | Get-AssignedDeviceUsers).group)
 
 # Disable inactive student accounts
+Write-Debug 'Process inactives?'
 $adObjs |
 Skip-SeniorGrads $inactiveSeniors |
-Disable-ADObjects |
+# Disable-ADObjects |
 Set-UserAccountControl |
-# Set-RandomPassword |
-Set-GsuiteSuspended |
+# Set-GsuiteSuspended |
 Remove-GsuiteLicense |
 Get-AssignedDeviceUsers |
 Update-Chromebooks |
@@ -460,11 +463,13 @@ Format-Html |
 Send-AlertEmail |
 Show-Obj
 
-# Password Randomizer - only for users disbled and not logged in for over 30 days.
-# Get-StaleLastLogins | Skip-SaturdayResets | Set-RandomPassword | Show-Obj
+Write-Debug 'Process stale?'
+# Password Randomizer - only for users disabled and not logged in for over 60 days.
+Get-StaleAD | Skip-SaturdayResets | Set-RandomPassword | Show-Obj
 
+Write-Debug 'Process super stale?'
 # Remove old student accounts
-Get-StaleAD | Remove-StaleAD | Remove-StaleGsuite | Show-Obj
+Get-SuperStaleAD | Remove-StaleAD | Remove-StaleGsuite | Show-Obj
 
 Clear-SessionData
 Show-TestRun
