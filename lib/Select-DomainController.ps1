@@ -8,6 +8,6 @@ function Select-DomainController ([string[]]$DomainControllers) {
   $msg = $MyInvocation.MyCommand.Name, $dc
   Write-Host ('{0},{1} Not responding. Trying random Domain Controller in 30 seconds...' -f $msg)
   Start-Sleep 30
-  Select-DomainController2 $DomainControllers
+  Select-DomainController $DomainControllers
  }
 }
