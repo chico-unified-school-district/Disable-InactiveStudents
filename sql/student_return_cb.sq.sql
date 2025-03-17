@@ -25,4 +25,4 @@ WHERE  DRA.RD IS NULL
 and [DRA].[CD] != 'S'
 and [PWA].[TY] = 'P'
 AND DRI.BC IS NOT NULL
-AND STU.ID =  {0}
+AND STU.ID = @PermID
