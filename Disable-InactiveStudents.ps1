@@ -163,14 +163,14 @@ function Get-InactiveADObj ($activeAD, $inactiveIDs) {
 function Get-InactiveIDs ($activeAD, $activeAeries) {
   Write-Host $MyInvocation.MyCommand.name -F $get
   Compare-Object -ReferenceObject $activeAeries -DifferenceObject $activeAD -Property employeeId |
-  Where-Object { $_.SideIndicator -eq '=>' }
+    Where-Object { $_.SideIndicator -eq '=>' }
 }
 
 filter Get-AssignedDeviceUsers ($sqlParams) {
   begin { $query = Get-Content -Path .\sql\student_return_cb.sq.sql -Raw }
   process {
     $sqlVars = "permId=$($_.employeeId)"
-    Write-Host ('{0},{1},{2}' -f $MyInvocation.MyCommand.name, $_.name, ($sqlVars -join ','))
+    Write-Verbose ('{0},{1},{2}' -f $MyInvocation.MyCommand.name, $_.name, ($sqlVars -join ','))
     New-SqlOperation @sqlParams -Query $query -Parameters $sqlVars | Group-Object
   }
 }
@@ -284,8 +284,9 @@ function Remove-GsuiteLicense {
   process {
     #SKU: 1010310003 = Google Workspace for Education Plus - Legacy (Student)
     #SKU: 1010310008 = Google Workspace for Education Plus
+    Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $_.HomePage) -F $update
     $cmd = "& $gam user {0} delete license 1010310008" -f $_.HomePage
-    Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $cmd) -F $update
+    Write-Verbose $cmd
     if ($_.HomePage -and -not$WhatIf) { (& $gam user $_.HomePage delete license 1010310008) *>$null }
     $_
   }
@@ -349,6 +350,14 @@ function Set-RandomPassword {
     Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -F $update
     $randomPW = ConvertTo-SecureString -String (New-RandomPassword) -AsPlainText -Force
     Set-ADAccountPassword -Identity $_.ObjectGUID -NewPassword $randomPW -Confirm:$false -WhatIf:$WhatIf
+    $_
+  }
+}
+
+function Set-GSuiteArchiveOn {
+  process {
+    Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -F $update
+    if ($_.HomePage -and -not$WhatIf) { (& $gam update user $_.HomePage archived on) *>$null }
     $_
   }
 }
@@ -439,17 +448,18 @@ Export-Report -ExportData (($aDObjs | Get-AssignedDeviceUsers $sqlParams).group)
 # Disable inactive student accounts
 Write-Debug 'Process inactives?'
 $adObjs |
-Skip-SeniorGrads $inactiveSeniors |
-# Disable-ADObjects |
-Set-UserAccountControl |
-# Set-GsuiteSuspended |
-Remove-GsuiteLicense |
-Get-AssignedDeviceUsers $sqlParams |
-Update-Chromebooks |
-Get-SecondaryStudents |
-Format-Html |
-Send-AlertEmail |
-Show-Obj
+  Skip-SeniorGrads $inactiveSeniors |
+    # Disable-ADObjects |
+    Set-UserAccountControl |
+      # Set-GsuiteSuspended |
+      Remove-GsuiteLicense |
+        Set-GSuiteArchiveOn |
+          Get-AssignedDeviceUsers $sqlParams |
+            Update-Chromebooks |
+              Get-SecondaryStudents |
+                Format-Html |
+                  Send-AlertEmail |
+                    Show-Obj
 
 Write-Debug 'Process stale?'
 # Password Randomizer - only for users disabled and not logged in for over 60 days.
