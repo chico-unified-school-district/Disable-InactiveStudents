@@ -108,17 +108,17 @@ function Format-ParentEmailAddresses {
  }
 }
 
-function Get-ActiveAD {
+function Get-ADData {
  $properties = 'AccountExpirationDate', 'EmployeeID', 'HomePage', 'info', 'title'
  $allStuParams = @{
-  Filter     = { (homepage -like "*@chicousd.net*") -and (employeeID -like "*") }
+  Filter     = { (homepage -like '*@chicousd.net*') -and (employeeID -like '*') }
   SearchBase = $RootOU
   Properties = $properties
  }
 
  $objs = Get-ADUser @allStuParams | Where-Object {
-  $_.samaccountname -match "^\b[a-zA-Z][a-zA-Z]\d{5,6}\b$" -and
-  $_.employeeID -match "^\d{5,6}$" -and
+  $_.SamAccountName -match '^\b[a-zA-Z][a-zA-Z]\d{5,6}\b$' -and
+  $_.employeeID -match '^\d{5,6}$' -and
   $_.title -notmatch 'test' -and
   $_.AccountExpirationDate -isnot [datetime] -and
   $_.Enabled -eq $True
@@ -131,13 +131,13 @@ function Get-SuperStaleAD {
  $cutOff = (Get-Date).AddMonths(-18) # Ask Director of IT before changing.
  $properties = 'LastLogonDate', 'EmployeeID', 'HomePage', 'title', 'WhenCreated'
  $allStuParams = @{
-  Filter     = { (homepage -like "*@*") -and (employeeID -like "*") -and (Enabled -eq 'False') }
+  Filter     = { (homepage -like '*@*') -and (employeeID -like '*') -and (Enabled -eq 'False') }
   SearchBase = $RootOU
   Properties = $properties
  }
  $objs = Get-ADUser @allStuParams | Where-Object {
-  $_.samaccountname -match "^\b[a-zA-Z][a-zA-Z]\d{5,6}\b$" -and
-  $_.employeeID -match "^\d{5,6}$" -and
+  $_.SamAccountName -match '^\b[a-zA-Z][a-zA-Z]\d{5,6}\b$' -and
+  $_.employeeID -match '^\d{5,6}$' -and
   $_.title -notmatch 'test' -and
   $_.LastLogonDate -lt $cutOff -and
   $_.WhenCreated -lt $cutOff
@@ -147,22 +147,22 @@ function Get-SuperStaleAD {
  $objs | Sort-Object employeeId
 }
 
-function Get-ActiveAeries ($sqlParams) {
+function Get-ActiveSiS ($sqlParams) {
  $query = Get-Content -Path '.\sql\active-students.sql' -Raw
  $results = New-SqlOperation @sqlParams -Query $query | Sort-Object employeeId
  Write-Host ('{0},Count: [{1}]' -f $MyInvocation.MyCommand.name, @($results).count) -F $get
  $results
 }
 
-function Get-InactiveADObj ($activeAD, $inactiveIDs) {
+function Get-InactiveADObj ($adData, $inactiveIDs) {
  foreach ($id in $inactiveIDs.employeeId) {
-  $activeAD.Where({ $_.employeeId -eq $id })
+  $adData.Where({ $_.employeeId -eq $id })
  }
 }
 
-function Get-InactiveIDs ($activeAD, $activeAeries) {
+function Get-InactiveIDs ($adData, $sisData) {
  Write-Host $MyInvocation.MyCommand.name -F $get
- Compare-Object -ReferenceObject $activeAeries -DifferenceObject $activeAD -Property employeeId |
+ Compare-Object -ReferenceObject $sisData -DifferenceObject $adData -Property employeeId |
   Where-Object { $_.SideIndicator -eq '=>' }
 }
 
@@ -204,13 +204,13 @@ function Get-StaleAD {
  $cutOff = (Get-Date).AddMonths(-1) # Ask Director of IT before changing.
  $properties = 'LastLogonDate', 'EmployeeID', 'HomePage', 'title', 'WhenCreated'
  $allStuParams = @{
-  Filter     = { (homepage -like "*@*") -and (employeeID -like "*") -and (Enabled -eq 'False') }
+  Filter     = { (homepage -like '*@*') -and (employeeID -like '*') -and (Enabled -eq 'False') }
   SearchBase = $RootOU
   Properties = $properties
  }
  $objs = Get-ADUser @allStuParams | Where-Object {
-  $_.samaccountname -match "^\b[a-zA-Z][a-zA-Z]\d{5,6}\b$" -and
-  $_.employeeID -match "^\d{5,6}$" -and
+  $_.SamAccountName -match '^\b[a-zA-Z][a-zA-Z]\d{5,6}\b$' -and
+  $_.employeeID -match '^\d{5,6}$' -and
   $_.title -notmatch 'test' -and
   $_.LastLogonDate -lt $cutOff -and
   $_.WhenCreated -lt $cutOff
@@ -237,7 +237,7 @@ function Update-Chromebooks {
   $sn = $data.serialNumber
   $msg = $MyInvocation.MyCommand.name, $data.mail, $sn, "& $gam print cros query `"id: $sn`" fields $crosFields"
   Write-Host ('{0},[{1}],[{2}],[{3}]' -f $msg) -F $update
-  ($crosDev = & $gam print cros query "id: $sn" fields $crosFields | ConvertFrom-CSV)*>$null
+  ($crosDev = & $gam print cros query "id: $sn" fields $crosFields | ConvertFrom-Csv)*>$null
   if ($crosDev) {
    $crosDev | Set-ChromebookOU
    $crosDev | Disable-Chromebook
@@ -264,7 +264,7 @@ function Skip-SaturdayResets {
  process {
   if ($null -eq $_.LastLogonDate) { return }
   #   Write-Verbose (get-date $_.LastLogonDate).dayofweek -f Green
-  if ((get-date $_.LastLogonDate).dayofweek -eq 'Saturday') { return }
+  if ((Get-Date $_.LastLogonDate).dayofweek -eq 'Saturday') { return }
   $_
  }
 }
@@ -272,7 +272,7 @@ function Skip-SaturdayResets {
 function Disable-Chromebook {
  process {
   $id = $_.deviceId
-  if ($crosDev.status -ne "ACTIVE") { return }
+  if ($crosDev.status -ne 'ACTIVE') { return }
   $msg = $MyInvocation.MyCommand.name, $_.serialNumber, "& $gam update cros $id action disable"
   Write-Host ('{0},[{1}],[{2}]' -f $msg) -F DarkCyan
   if ($WhatIf) { return }
@@ -345,7 +345,7 @@ function Send-ReportData {
 }
 
 function Set-RandomPassword {
- Process {
+ process {
   if ($_.randomPW -ne $true) { return $_ }
   Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -F $update
   $randomPW = ConvertTo-SecureString -String (New-RandomPassword) -AsPlainText -Force
@@ -373,15 +373,14 @@ function Set-GsuiteSuspended {
 function Set-UserAccountControl {
  process {
   Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -F $update
-  # Set uac to 514 (0x0202) to notify Bradford to stop access to network
-  Set-ADUser -Identity $_.ObjectGUID -Replace @{UserAccountControl = 0x0202 } -Confirm:$false -WhatIf:$WhatIf
+  Set-ADUser -Identity $_.ObjectGUID -Replace @{UserAccountControl = 546 } -Confirm:$false -WhatIf:$WhatIf
   $_
  }
 }
 
 function Remove-StaleAD {
  process {
-  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $_.samaccountname) -F $alert
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $_.SamAccountName) -F $alert
   Remove-ADObject -Identity $_.ObjectGUID -Recursive -Confirm:$false -WhatIf:$WhatIf
   $_
  }
@@ -399,7 +398,7 @@ function Remove-StaleGSuite {
 
 function Show-Obj {
  begin { $i = 0 }
- Process {
+ process {
   $i++
   Write-Verbose ($i, $MyInvocation.MyCommand.Name, $_ | Out-String)
   # Write-Debug 'Proceed?'
@@ -421,13 +420,15 @@ function Skip-SeniorGrads ($inactiveSeniors) {
 if ($WhatIf) { Show-TestRun }
 Clear-SessionData
 
-Import-Module CommonScriptFunctions, dbatools, ImportExcel
+Import-Module CommonScriptFunctions -Cmdlet Clear-SessionData, Show-TestRun, New-SqlOperation
+Import-Module -Name dbatools -Cmdlet Invoke-DbaQuery, Set-DbatoolsConfig, Connect-DbaInstance, Disconnect-DbaInstance
+Import-Module ImportExcel -Cmdlet Export-Excel
 
 $gam = '.\bin\gam.exe'
 
 $dc = Select-DomainController $DomainControllers
 $cmdlets = 'Get-ADUser', 'Set-ADUser', 'Set-ADAccountPassword', 'Remove-ADobject'
-New-ADSession -dc $dc -cmdlets $cmdlets -cred $ADCredential
+New-ADSession -DC $dc -Cmdlets $cmdlets -cred $ADCredential
 
 $sqlParams = @{
  Server     = $SISServer
@@ -435,13 +436,13 @@ $sqlParams = @{
  Credential = $SISCredential
 }
 
-$activeAD = Get-ActiveAD
-$activeAeries = Get-ActiveAeries $sqlParams
-$inactiveIDs = Get-InactiveIDs -activeAD $activeAD -activeAeries $activeAeries
+$studentADData = Get-ADData
+$activeSiS = Get-ActiveSiS $sqlParams
+$inactiveIDs = Get-InactiveIDs -adData $studentADData -sisData $activeSiS
 
 $inactiveSeniors = Get-InactiveSeniors $sqlParams -Query (Get-Content .\sql\get-inactive-seniors.sql -Raw)
 
-$aDObjs = Get-InactiveADObj -activeAD $activeAD -inactiveIDs $inactiveIDs
+$aDObjs = Get-InactiveADObj -adData $studentADData -inactiveIDs $inactiveIDs
 
 Export-Report -ExportData (($aDObjs | Get-AssignedDeviceUsers $sqlParams).group)
 
@@ -450,16 +451,16 @@ Write-Debug 'Process inactives?'
 $adObjs |
  Skip-SeniorGrads $inactiveSeniors |
   # Disable-ADObjects |
-  Set-UserAccountControl |
-   # Set-GsuiteSuspended |
-   Remove-GsuiteLicense |
-    Set-GSuiteArchiveOn |
-     Get-AssignedDeviceUsers $sqlParams |
-      Update-Chromebooks |
-       Get-SecondaryStudents |
-        Format-Html |
-         Send-AlertEmail |
-          Show-Obj
+  # Set-UserAccountControl |
+  # Set-GsuiteSuspended |
+  Remove-GsuiteLicense |
+   Set-GSuiteArchiveOn |
+    Get-AssignedDeviceUsers $sqlParams |
+     Update-Chromebooks |
+      Get-SecondaryStudents |
+       Format-Html |
+        Send-AlertEmail |
+         Show-Obj
 
 Write-Debug 'Process stale?'
 # Password Randomizer - only for users disabled and not logged in for over 60 days.
