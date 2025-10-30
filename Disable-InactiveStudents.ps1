@@ -237,7 +237,9 @@ function Update-Chromebooks {
   $sn = $data.serialNumber
   $msg = $MyInvocation.MyCommand.name, $data.mail, $sn, "& $gam print cros query `"id: $sn`" fields $crosFields"
   Write-Host ('{0},[{1}],[{2}],[{3}]' -f $msg) -F $update
+  $ErrorActionPreference = 'Continue'
   ($crosDev = & $gam print cros query "id: $sn" fields $crosFields | ConvertFrom-Csv)*>$null
+  $ErrorActionPreference = 'Stop'
   if ($crosDev) {
    $crosDev | Set-ChromebookOU
    $crosDev | Disable-Chromebook
@@ -256,7 +258,9 @@ function Set-ChromebookOU {
   $msg = $MyInvocation.MyCommand.name, $_.serialNumber, "& $gam update cros $id ou $targOu"
   Write-Host ('{0},[{1}],[{2}]' -f $msg) -F $update
   if ($WhatIf) { return }
+  $ErrorActionPreference = 'Continue'
   & $gam update cros $id ou $targOu *>$null
+  $ErrorActionPreference = 'Stop'
  }
 }
 
@@ -276,7 +280,9 @@ function Disable-Chromebook {
   $msg = $MyInvocation.MyCommand.name, $_.serialNumber, "& $gam update cros $id action disable"
   Write-Host ('{0},[{1}],[{2}]' -f $msg) -F DarkCyan
   if ($WhatIf) { return }
+  $ErrorActionPreference = 'Continue'
   & $gam update cros $id action disable *>$null
+  $ErrorActionPreference = 'Stop'
  }
 }
 
@@ -287,7 +293,11 @@ function Remove-GsuiteLicense {
   Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $_.HomePage) -F $update
   $cmd = "& $gam user {0} delete license 1010310008" -f $_.HomePage
   Write-Verbose $cmd
-  if ($_.HomePage -and -not$WhatIf) { (& $gam user $_.HomePage delete license 1010310008) *>$null }
+  if ($_.HomePage -and -not$WhatIf) {
+   $ErrorActionPreference = 'Continue'
+   (& $gam user $_.HomePage delete license 1010310008) *>$null
+   $ErrorActionPreference = 'Stop'
+  }
   $_
  }
 }
@@ -357,7 +367,11 @@ function Set-RandomPassword {
 function Set-GSuiteArchiveOn {
  process {
   Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -F $update
-  if ($_.HomePage -and -not$WhatIf) { (& $gam update user $_.HomePage archived on) *>$null }
+  if ($_.HomePage -and -not$WhatIf) {
+   $ErrorActionPreference = 'Continue'
+   (& $gam update user $_.HomePage archived on) *>$null
+   $ErrorActionPreference = 'Stop'
+  }
   $_
  }
 }
@@ -365,7 +379,11 @@ function Set-GSuiteArchiveOn {
 function Set-GsuiteSuspended {
  process {
   Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -F $update
-  if ($_.HomePage -and -not$WhatIf) { (& $gam update user $_.HomePage suspended on) *>$null }
+  if ($_.HomePage -and -not$WhatIf) {
+   $ErrorActionPreference = 'Continue'
+   (& $gam update user $_.HomePage suspended on) *>$null
+   $ErrorActionPreference = 'Stop'
+  }
   $_
  }
 }
@@ -391,7 +409,9 @@ function Remove-StaleGSuite {
   Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $_.HomePage) -F $alert
   Write-Verbose ("& $gam delete user {0}" -f $_.HomePage)
   if ($WhatIf) { return }
+  $ErrorActionPreference = 'Continue'
   & $gam delete user $_.HomePage
+  $ErrorActionPreference = 'Stop'
   # pause
  }
 }
@@ -424,7 +444,7 @@ Import-Module CommonScriptFunctions -Cmdlet Clear-SessionData, Show-TestRun, New
 Import-Module -Name dbatools -Cmdlet Invoke-DbaQuery, Set-DbatoolsConfig, Connect-DbaInstance, Disconnect-DbaInstance
 Import-Module ImportExcel -Cmdlet Export-Excel
 
-$gam = '.\bin\gam.exe'
+$gam = 'C:\GAM7\gam.exe'
 
 $dc = Select-DomainController $DomainControllers
 $cmdlets = 'Get-ADUser', 'Set-ADUser', 'Set-ADAccountPassword', 'Remove-ADobject'
