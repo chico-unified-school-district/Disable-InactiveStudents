@@ -312,10 +312,9 @@ function Send-AlertEmail {
   Write-Host ('{0},To: [{1}],CC: [{2}],BCc: [{3}]' -f $msg) -F $info
   $mailParams = @{
    To         = $MailTarget
-   From       = $MailCredential.Username
+   From       = $MailCredenstial.Username
    Subject    = $subject
-   bodyAsHTML = $true
-   Body       = $_.html
+   HTML       = $_.html
    SMTPServer = 'smtp.office365.com'
    Cred       = $MailCredential
    UseSSL     = $True
@@ -324,7 +323,8 @@ function Send-AlertEmail {
   if ($BccAddress) { $mailParams += @{Bcc = $BccAddress } }
   if ($CCAddress) { $mailParams += @{CC = $CCAddress } }
   Write-Verbose ($_.html | Out-String)
-  if (-not$WhatIf) { Send-MailMessage @mailParams }
+  if (!$WhatIf) { Send-EmailMessage @mailParams }
+  if (!$WhatIf) { Start-Sleep -Seconds 60 } # Avoid throttling
   $i++
  }
  end {
@@ -443,6 +443,7 @@ Clear-SessionData
 Import-Module CommonScriptFunctions -Cmdlet Clear-SessionData, Show-TestRun, New-SqlOperation
 Import-Module -Name dbatools -Cmdlet Invoke-DbaQuery, Set-DbatoolsConfig, Connect-DbaInstance, Disconnect-DbaInstance
 Import-Module ImportExcel -Cmdlet Export-Excel
+Import-Module -Name Mailozaurr -Cmdlet Send-MailMessage
 
 $gam = 'C:\GAM7\gam.exe'
 
