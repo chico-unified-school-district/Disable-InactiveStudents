@@ -109,9 +109,9 @@ function Format-ParentEmailAddresses {
 }
 
 function Get-ADData {
- $properties = 'AccountExpirationDate', 'EmployeeID', 'HomePage', 'info', 'title'
+ $properties = 'AccountExpirationDate', 'EmployeeID', 'HomePage', 'info', 'title', 'gecos'
  $allStuParams = @{
-  Filter     = { (homepage -like '*@chicousd.net*') -and (employeeID -like '*') }
+  Filter     = { (homepage -like '*@*') -and (employeeID -like '*') }
   SearchBase = $RootOU
   Properties = $properties
  }
@@ -286,7 +286,7 @@ function Disable-Chromebook {
  }
 }
 
-function Remove-GsuiteLicense {
+function Remove-GSuiteLicense {
  process {
   #SKU: 1010310003 = Google Workspace for Education Plus - Legacy (Student)
   #SKU: 1010310008 = Google Workspace for Education Plus
@@ -376,7 +376,7 @@ function Set-GSuiteArchiveOn {
  }
 }
 
-function Set-GsuiteSuspended {
+function Set-GSuiteSuspended {
  process {
   Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -F $update
   if ($_.HomePage -and -not$WhatIf) {
@@ -436,6 +436,14 @@ function Skip-SeniorGrads ($inactiveSeniors) {
 }
 
 
+function Update-Grade {
+ process {
+  # Set grade to 9999 to indicate inactive student. Other processing can use this discrepancy to identify and fix if needed.
+  Write-Host ('{0},Gecos = 9999' -f $MyInvocation.MyCommand.Name) -F Cyan
+  Set-ADUser -Identity $_.ObjectGUID -Replace @{gecos = '9999' } -Confirm:$false -WhatIf:$WhatIf
+ }
+}
+
 # ======================================= Processing ======================================
 if ($WhatIf) { Show-TestRun }
 Clear-SessionData
@@ -467,21 +475,21 @@ $aDObjs = Get-InactiveADObj -adData $studentADData -inactiveIDs $inactiveIDs
 
 Export-Report -ExportData (($aDObjs | Get-AssignedDeviceUsers $sqlParams).group)
 
-# Disable inactive student accounts
-Write-Debug 'Process inactives?'
+# Processing inactive student accounts
 $adObjs |
  Skip-SeniorGrads $inactiveSeniors |
-  # Disable-ADObjects |
-  # Set-UserAccountControl |
-  # Set-GsuiteSuspended |
-  Remove-GsuiteLicense |
-   Set-GSuiteArchiveOn |
-    Get-AssignedDeviceUsers $sqlParams |
-     Update-Chromebooks |
-      Get-SecondaryStudents |
-       Format-Html |
-        Send-AlertEmail |
-         Show-Obj
+  Update-Grade |
+   # Disable-ADObjects |
+   # Set-UserAccountControl |
+   # Set-GsuiteSuspended |
+   Remove-GsuiteLicense |
+    Set-GSuiteArchiveOn |
+     Get-AssignedDeviceUsers $sqlParams |
+      Update-Chromebooks |
+       Get-SecondaryStudents |
+        Format-Html |
+         Send-AlertEmail |
+          Show-Obj
 
 Write-Debug 'Process stale?'
 # Password Randomizer - only for users disabled and not logged in for over 60 days.
