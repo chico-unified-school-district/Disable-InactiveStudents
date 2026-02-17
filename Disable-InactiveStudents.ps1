@@ -54,7 +54,7 @@ param (
 
 # Output Colors
 $info = 'Blue'
-$alert = 'Red'
+$alert = 'Yellow'
 $get = 'Green'
 $update = 'Magenta'
 
@@ -312,18 +312,19 @@ function Send-AlertEmail {
   Write-Host ('{0},To: [{1}],CC: [{2}],BCc: [{3}]' -f $msg) -F $info
   $mailParams = @{
    To         = $MailTarget
-   From       = $MailCredenstial.Username
+   From       = $MailCredential.Username
    Subject    = $subject
    HTML       = $_.html
    SMTPServer = 'smtp.office365.com'
    Cred       = $MailCredential
    UseSSL     = $True
    Port       = 587
+   WhatIf     = $WhatIf
   }
   if ($BccAddress) { $mailParams += @{Bcc = $BccAddress } }
   if ($CCAddress) { $mailParams += @{CC = $CCAddress } }
   Write-Verbose ($_.html | Out-String)
-  if (!$WhatIf) { Send-EmailMessage @mailParams }
+  Send-EmailMessage @mailParams
   if (!$WhatIf) { Start-Sleep -Seconds 60 } # Avoid throttling
   $i++
  }
@@ -342,16 +343,16 @@ function Send-ReportData {
   To         = $ExportMailTarget
   From       = $MailCredential.Username
   Subject    = (Get-Date -f MM/dd/yyyy) + ' - Student Device Recovery Report'
-  bodyAsHTML = $true
-  Body       = $ExportHTML
+  HTML       = $ExportHTML
   Attachment = $AttachmentPath
   SMTPServer = 'smtp.office365.com'
   Cred       = $MailCredential
   UseSSL     = $True
   Port       = 587
+  WhatIf     = $WhatIf
  }
  Write-Verbose ($_.html | Out-String)
- if (-not$WhatIf) { Send-MailMessage @mailParams }
+ Send-EmailMessage @mailParams
 }
 
 function Set-RandomPassword {
@@ -439,25 +440,25 @@ function Skip-SeniorGrads ($inactiveSeniors) {
 function Update-Grade {
  process {
   # Set grade to 9999 to indicate inactive student. Other processing can use this discrepancy to identify and fix if needed.
-  Write-Host ('{0},Gecos = 9999' -f $MyInvocation.MyCommand.Name) -F Cyan
+  Write-Host ('{0},[{1}] Gecos = 9999' -f $MyInvocation.MyCommand.Name, $_.SamAccountName) -F Cyan
   Set-ADUser -Identity $_.ObjectGUID -Replace @{gecos = '9999' } -Confirm:$false -WhatIf:$WhatIf
  }
 }
 
 # ======================================= Processing ======================================
 if ($WhatIf) { Show-TestRun }
-Clear-SessionData
 
-Import-Module CommonScriptFunctions -Cmdlet Clear-SessionData, Show-TestRun, New-SqlOperation
+Import-Module CommonScriptFunctions -Cmdlet Clear-SessionData, Connect-ADSession, Show-TestRun, New-SqlOperation
 Import-Module -Name dbatools -Cmdlet Invoke-DbaQuery, Set-DbatoolsConfig, Connect-DbaInstance, Disconnect-DbaInstance
 Import-Module ImportExcel -Cmdlet Export-Excel
-Import-Module -Name Mailozaurr -Cmdlet Send-MailMessage
+Import-Module -Name Mailozaurr -Cmdlet Send-EMailMessage
 
+Show-BlockInfo main
+Clear-SessionData
 $gam = 'C:\GAM7\gam.exe'
 
-$dc = Select-DomainController $DomainControllers
 $cmdlets = 'Get-ADUser', 'Set-ADUser', 'Set-ADAccountPassword', 'Remove-ADobject'
-New-ADSession -DC $dc -Cmdlets $cmdlets -cred $ADCredential
+Connect-ADSession -DomainControllers $DomainControllers -Cmdlets $cmdlets -Credential $ADCredential
 
 $sqlParams = @{
  Server     = $SISServer
