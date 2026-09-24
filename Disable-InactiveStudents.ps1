@@ -433,11 +433,18 @@ function Skip-SeniorGrads ($inactiveSeniors) {
 }
 
 
-function Update-Grade {
+function Update-Grade ([pscredential]$cred) {
  process {
   # Set grade to 9999 to indicate inactive student. Other processing can use this discrepancy to identify and fix if needed.
   Write-Host ('{0},[{1}] Gecos = 9999' -f $MyInvocation.MyCommand.Name, $_.SamAccountName) -F Cyan
-  Set-ADUser -Identity $_.ObjectGUID -Replace @{gecos = '9999' } -Confirm:$false -WhatIf:$WhatIf
+  $params = @{
+   Identity   = $_.ObjectGUID
+   Replace    = @{gecos = '9999' }
+   Confirm    = $false
+   Credential = $cred
+   WhatIf     = $WhatIf
+  }
+  Set-ADUser @params
  }
 }
 
@@ -475,7 +482,7 @@ Export-Report -ExportData (($aDObjs | Get-AssignedDeviceUsers $sqlParams).group)
 Show-BlockInfo 'Processing inactive student accounts'
 $adObjs |
  Skip-SeniorGrads $inactiveSeniors |
-  Update-Grade |
+  Update-Grade -cred $ADCredential |
    # Disable-ADObjects -cred $ADCredential|
    # Set-UserAccountControl -cred $ADCredential|
    # Set-GsuiteSuspended |
