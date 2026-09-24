@@ -496,11 +496,12 @@ $adObjs |
          Show-Obj
 
 Show-BlockInfo 'Processing stale student accounts'
-Get-StaleAD -ou $RootOU -months -1 -cred $ADCredential |
+Get-StaleAD -ou $RootOU -months -3 -cred $ADCredential |
  Skip-SaturdayResets |
   Set-RandomPassword -cred $ADCredential |
    Update-OrgUnit -ou $NoGSuiteLicenseOU -cred $ADCredential |
-    Show-Obj
+    Remove-GSuiteLicense |
+     Show-Obj
 
 Show-BlockInfo 'Removing SUPER stale student accounts'
 Get-StaleAD -ou $RootOU -months -18 -cred $ADCredential |
