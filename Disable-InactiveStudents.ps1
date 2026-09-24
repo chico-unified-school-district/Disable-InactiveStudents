@@ -22,8 +22,7 @@ Email Messages
 #>
 [cmdletbinding()]
 param (
- [Parameter(Mandatory = $True)]
- # [Alias('DCs')][string[]]$DomainControllers,
+ # [Parameter(Mandatory = $True)][Alias('DCs')][string[]]$DomainControllers,
  [Parameter(Mandatory = $True)][string]$RootOU,
  [Parameter(Mandatory = $True)][string]$NoGSuiteLicenseOU,
  [Parameter(Mandatory = $True)][PSCredential]$ADCredential,
