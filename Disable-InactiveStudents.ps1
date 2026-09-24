@@ -23,29 +23,17 @@ Email Messages
 [cmdletbinding()]
 param (
  [Parameter(Mandatory = $True)]
- [Alias('DCs')]
- [string[]]$DomainControllers,
- [Parameter(Mandatory = $True)]
- [string]$RootOU,
- # PSSession to Domain Controller and Use Active Directory CMDLETS
- [Parameter(Mandatory = $True)]
- [Alias('ADCred')]
- [System.Management.Automation.PSCredential]$ADCredential,
- # Aeries Server\Database combination
- [Parameter(Mandatory = $True)]
- [string]$SISServer,
- [Parameter(Mandatory = $True)]
- [string]$SISDatabase,
+ # [Alias('DCs')][string[]]$DomainControllers,
+ [Parameter(Mandatory = $True)][string]$RootOU,
+ [Parameter(Mandatory = $True)][string]$NoGSuiteLicenseOU,
+ [Parameter(Mandatory = $True)][PSCredential]$ADCredential,
+ [Parameter(Mandatory = $True)][string]$SISServer,
+ [Parameter(Mandatory = $True)][string]$SISDatabase,
  # Aeries SQL user account with SELECT permission to STU table
- [Parameter(Mandatory = $True)]
- [Alias('SISCred')]
- [System.Management.Automation.PSCredential]$SISCredential,
- [Parameter(Mandatory = $True)]
- [string[]]$ExportMailTarget,
- [Parameter(Mandatory = $True)]
- [System.Management.Automation.PSCredential]$MailCredential,
- [Parameter(Mandatory = $True)]
- [string[]]$MailTarget,
+ [Parameter(Mandatory = $True)][PSCredential]$SISCredential,
+ [Parameter(Mandatory = $True)][string[]]$ExportMailTarget,
+ [Parameter(Mandatory = $True)][PSCredential]$MailCredential,
+ [Parameter(Mandatory = $True)][string[]]$MailTarget,
  [string[]]$BccAddress,
  [string[]]$CCAddress,
  [Alias('wi')]
@@ -107,12 +95,13 @@ function Format-ParentEmailAddresses {
  }
 }
 
-function Get-ADData {
+function Get-ADData ($ou, [pscredential]$cred) {
  $properties = 'AccountExpirationDate', 'EmployeeID', 'HomePage', 'info', 'title', 'gecos'
  $allStuParams = @{
   Filter     = { (homepage -like '*@*') -and (employeeID -like '*') }
-  SearchBase = $RootOU
+  SearchBase = $ou
   Properties = $properties
+  Credential = $cred
  }
 
  $objs = Get-ADUser @allStuParams | Where-Object {
@@ -123,26 +112,6 @@ function Get-ADData {
   $_.Enabled -eq $True
  }
  Write-Host ('{0},Count: [{1}]' -f $MyInvocation.MyCommand.Name, @($objs).count) -F $get
- $objs | Sort-Object employeeId
-}
-
-function Get-SuperStaleAD {
- $cutOff = (Get-Date).AddMonths(-18) # Ask Director of IT before changing.
- $properties = 'LastLogonDate', 'EmployeeID', 'HomePage', 'title', 'WhenCreated'
- $allStuParams = @{
-  Filter     = { (homepage -like '*@*') -and (employeeID -like '*') -and (Enabled -eq 'False') }
-  SearchBase = $RootOU
-  Properties = $properties
- }
- $objs = Get-ADUser @allStuParams | Where-Object {
-  $_.SamAccountName -match '^\b[a-zA-Z][a-zA-Z]\d{5,6}\b$' -and
-  $_.employeeID -match '^\d{5,6}$' -and
-  $_.title -notmatch 'test' -and
-  $_.LastLogonDate -lt $cutOff -and
-  $_.WhenCreated -lt $cutOff
- }
- Write-Host ('{0},Count: {1}' -f $MyInvocation.MyCommand.Name, @($objs).count) -F $get
- # Start-Sleep 3 # why?
  $objs | Sort-Object employeeId
 }
 
@@ -199,13 +168,14 @@ filter Get-SecondaryStudents {
  }
 }
 
-function Get-StaleAD {
- $cutOff = (Get-Date).AddMonths(-1) # Ask Director of IT before changing.
+function Get-StaleAD ($ou, $months, [pscredential]$cred) {
+ $cutOff = (Get-Date).AddMonths($months) # Ask Director of IT before changing.
  $properties = 'LastLogonDate', 'EmployeeID', 'HomePage', 'title', 'WhenCreated'
  $allStuParams = @{
-  Filter     = { (homepage -like '*@*') -and (employeeID -like '*') -and (Enabled -eq 'False') }
-  SearchBase = $RootOU
+  Filter     = "Enabled -eq 'False' -and employeeType -eq 'student'"
+  SearchBase = $ou
   Properties = $properties
+  Credential = $cred
  }
  $objs = Get-ADUser @allStuParams | Where-Object {
   $_.SamAccountName -match '^\b[a-zA-Z][a-zA-Z]\d{5,6}\b$' -and
@@ -214,15 +184,22 @@ function Get-StaleAD {
   $_.LastLogonDate -lt $cutOff -and
   $_.WhenCreated -lt $cutOff
  }
- Write-Host ('{0},Count: {1}' -f $MyInvocation.MyCommand.Name, @($objs).count) -F $get
+ Write-Host ('{0},Count: {1}' -f $MyInvocation.MyCommand.Name, @($objs).count) -F green
  $objs | Sort-Object employeeId
 }
 
-function Disable-ADObjects {
+function Disable-ADObjects ([pscredential]$cred) {
  process {
   Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -F $update
-  Set-ADUser -Identity $_.ObjectGUID -Enabled:$false -Confirm:$false -WhatIf:$WhatIf
+  Set-ADUser -Identity $_.ObjectGUID -Enabled:$false -Confirm:$false -Credential $cred -WhatIf:$WhatIf
   $_
+ }
+}
+
+function Update-OrgUnit ($ou, [pscredential]$cred) {
+ process {
+  Write-Host ('{0},' -f $MyInvocation.MyCommand.Name)
+  $_ | Move-ADObject -TargetPath $ou -Confirm:$false -Credential $cred -WhatIf:$WhatIf
  }
 }
 
@@ -301,7 +278,7 @@ function Remove-GSuiteLicense {
  }
 }
 
-function Send-AlertEmail {
+function Send-AlertEmail ([pscredential]$cred) {
  begin {
   $subject = 'Exiting Student Chromebook Return'
   $i = 0
@@ -311,11 +288,11 @@ function Send-AlertEmail {
   Write-Host ('{0},To: [{1}],CC: [{2}],BCc: [{3}]' -f $msg) -F $info
   $mailParams = @{
    To         = $MailTarget
-   From       = $MailCredential.Username
+   From       = $cred.Username
    Subject    = $subject
    HTML       = $_.html
    SMTPServer = 'smtp.office365.com'
-   Cred       = $MailCredential
+   Cred       = $cred
    UseSSL     = $True
    Port       = 587
    WhatIf     = $WhatIf
@@ -354,12 +331,19 @@ function Send-ReportData {
  Send-EmailMessage @mailParams
 }
 
-function Set-RandomPassword {
+function Set-RandomPassword ([pscredential]$cred) {
  process {
   if ($_.randomPW -ne $true) { return $_ }
+  # Password Randomizer - only for users disabled and not logged in for over 60 days.
   Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -F $update
-  $randomPW = ConvertTo-SecureString -String (New-RandomPassword) -AsPlainText -Force
-  Set-ADAccountPassword -Identity $_.ObjectGUID -NewPassword $randomPW -Confirm:$false -WhatIf:$WhatIf
+  $params = @{
+   Identity    = $_.ObjectGUID
+   NewPassword = ConvertTo-SecureString -String (New-RandomPassword) -AsPlainText -Force
+   Confirm     = $false
+   Credential  = $cred
+   WhatIf      = $WhatIf
+  }
+  Set-ADAccountPassword @params
   $_
  }
 }
@@ -388,18 +372,32 @@ function Set-GSuiteSuspended {
  }
 }
 
-function Set-UserAccountControl {
+function Set-UserAccountControl ([pscredential]$cred) {
  process {
   Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -F $update
-  Set-ADUser -Identity $_.ObjectGUID -Replace @{UserAccountControl = 546 } -Confirm:$false -WhatIf:$WhatIf
+  $params = @{
+   Identity   = $_.ObjectGUID
+   Replace    = @{ UserAccountControl = 546 }
+   Confirm    = $false
+   Credential = $cred
+   WhatIf     = $WhatIf
+  }
+  Set-ADUser @params
   $_
  }
 }
 
-function Remove-StaleAD {
+function Remove-StaleAD ([pscredential]$cred) {
  process {
   Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $_.SamAccountName) -F $alert
-  Remove-ADObject -Identity $_.ObjectGUID -Recursive -Confirm:$false -WhatIf:$WhatIf
+  $params = @{
+   Identity   = $_.ObjectGUID
+   Recursive  = $true
+   Confirm    = $false
+   Credential = $cred
+   WhatIf     = $WhatIf
+  }
+  Remove-ADObject @params
   $_
  }
 }
@@ -456,8 +454,8 @@ Show-BlockInfo main
 Clear-SessionData
 $gam = 'C:\GAM7\gam.exe'
 
-$cmdlets = 'Get-ADUser', 'Set-ADUser', 'Set-ADAccountPassword', 'Remove-ADobject'
-Connect-ADSession -DomainControllers $DomainControllers -Cmdlets $cmdlets -Credential $ADCredential
+# $cmdlets = 'Get-ADUser', 'Set-ADUser', 'Set-ADAccountPassword', 'Remove-ADobject' , 'Move-ADObject'
+# Connect-ADSession -DomainControllers $DomainControllers -Cmdlets $cmdlets -Credential $ADCredential
 
 $sqlParams = @{
  Server     = $SISServer
@@ -465,7 +463,7 @@ $sqlParams = @{
  Credential = $SISCredential
 }
 
-$studentADData = Get-ADData
+$studentADData = Get-ADData -ou $RootOU -cred $ADCredential
 $activeSiS = Get-ActiveSiS $sqlParams
 $inactiveIDs = Get-InactiveIDs -adData $studentADData -sisData $activeSiS
 
@@ -475,29 +473,34 @@ $aDObjs = Get-InactiveADObj -adData $studentADData -inactiveIDs $inactiveIDs
 
 Export-Report -ExportData (($aDObjs | Get-AssignedDeviceUsers $sqlParams).group)
 
-# Processing inactive student accounts
+Show-BlockInfo 'Processing inactive student accounts'
 $adObjs |
  Skip-SeniorGrads $inactiveSeniors |
   Update-Grade |
-   # Disable-ADObjects |
-   # Set-UserAccountControl |
+   # Disable-ADObjects -cred $ADCredential|
+   # Set-UserAccountControl -cred $ADCredential|
    # Set-GsuiteSuspended |
-   Remove-GsuiteLicense |
-    Set-GSuiteArchiveOn |
-     Get-AssignedDeviceUsers $sqlParams |
-      Update-Chromebooks |
-       Get-SecondaryStudents |
-        Format-Html |
-         Send-AlertEmail |
-          Show-Obj
+   # Remove-GsuiteLicense |
+   Set-GSuiteArchiveOn |
+    Get-AssignedDeviceUsers $sqlParams |
+     Update-Chromebooks |
+      Get-SecondaryStudents |
+       Format-Html |
+        Send-AlertEmail -cred $MailCredential |
+         Show-Obj
 
-Write-Debug 'Process stale?'
-# Password Randomizer - only for users disabled and not logged in for over 60 days.
-Get-StaleAD | Skip-SaturdayResets | Set-RandomPassword | Show-Obj
+Show-BlockInfo 'Processing stale student accounts'
+Get-StaleAD -ou $RootOU -months -1 -cred $ADCredential |
+ Skip-SaturdayResets |
+  Set-RandomPassword -cred $ADCredential |
+   Update-OrgUnit -ou $NoGSuiteLicenseOU -cred $ADCredential |
+    Show-Obj
 
-Write-Debug 'Process super stale?'
-# Remove old student accounts
-Get-SuperStaleAD | Remove-StaleAD | Remove-StaleGsuite | Show-Obj
+Show-BlockInfo 'Removing SUPER stale student accounts'
+Get-StaleAD -ou $RootOU -months -18 -cred $ADCredential |
+ Remove-StaleAD -cred $ADCredential |
+  Remove-StaleGSuite |
+   Show-Obj
 
 Clear-SessionData
 if ($WhatIf) { Show-TestRun }
