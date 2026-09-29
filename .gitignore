@@ -77,5 +77,5 @@ notes.ps1
 /jenkins.ps1
 /bin/gam.exe
 /jenkins.ps1.old
-/reports/*.xls
-*.xls
+/reports/*.xlsx
+*.xlsx
