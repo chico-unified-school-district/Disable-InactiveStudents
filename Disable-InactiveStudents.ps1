@@ -208,6 +208,13 @@ function Get-StaleAD ($ou, $months, [pscredential]$cred) {
  $objs | Sort-Object employeeId
 }
 
+function New-Object {
+ [pscustomobject]@{
+  ad  = $_
+  sis = $null
+ }
+}
+
 function Set-ChromebookOU {
  begin {
   $targOu = '/Chromebooks/Missing'
@@ -232,22 +239,6 @@ function Skip-SaturdayResets {
   $_
  }
 }
-
-# function Remove-GSuiteLicense {
-#  process {
-#   #SKU: 1010310003 = Google Workspace for Education Plus - Legacy (Student)
-#   #SKU: 1010310008 = Google Workspace for Education Plus
-#   Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $_.HomePage) -F magenta
-#   $cmd = "& $gam user {0} delete license 1010310008" -f $_.HomePage
-#   Write-Verbose $cmd
-#   if ($_.HomePage -and -not$WhatIf) {
-#    $ErrorActionPreference = 'Continue'
-#    (& $gam user $_.HomePage delete license 1010310008) *>$null
-#    $ErrorActionPreference = 'Stop'
-#   }
-#   $_
-#  }
-# }
 
 function Remove-GSuiteLicense ($ou) {
  begin {
@@ -404,6 +395,12 @@ function Set-GSuiteSuspended {
  }
 }
 
+function Set-PropGrad ($data) {
+ $id = $_.ad.EmployeeId
+ $_.sis = $data.Where({ $_.ID -eq $id })
+ $_
+}
+
 function Set-UserAccountControl ([pscredential]$cred) {
  process {
   Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -F magenta
@@ -424,7 +421,6 @@ function Show-Obj {
  process {
   $i++
   Write-Verbose ($i, $MyInvocation.MyCommand.Name, $_ | Out-String)
-  # Write-Debug 'Proceed?'
  }
 }
 
@@ -512,33 +508,32 @@ $aDObjs = Get-InactiveADObj -adData $studentADData -inactiveIDs $inactiveIDs
 
 Show-BlockInfo 'Processing inactive student accounts'
 $adObjs |
- Skip-SeniorGrads $inactiveSeniors |
-  Update-Grade -cred $ADCredential |
-   # Disable-ADObjects -cred $ADCredential|
-   # Set-UserAccountControl -cred $ADCredential|
-   # Set-GsuiteSuspended |
-   # Remove-GsuiteLicense -ou $NoGSuiteLicenseOU |
-   Set-GSuiteArchiveOn |
-    Get-AssignedDeviceUsers $sqlParams |
-     Update-Chromebooks |
-      Get-SecondaryStudents |
-       Format-Html |
-        Send-AlertEmail -cred $MailCredential |
-         Show-Obj
+ New-Object |
+  # Set-PropGrad -data $inactiveSeniors |
+  # Skip-SeniorGrads $inactiveSeniors |
+  #  Update-Grade -cred $ADCredential |
+  #   # Remove-GsuiteLicense -ou $NoGSuiteLicenseOU |
+  #   Set-GSuiteArchiveOn |
+  #    Get-AssignedDeviceUsers $sqlParams |
+  #     Update-Chromebooks |
+  #      Get-SecondaryStudents |`
+  #       Format-Html |
+  #        Send-AlertEmail -cred $MailCredential |
+  Show-Obj
 
-Show-BlockInfo 'Processing stale student accounts'
-Get-StaleAD -ou $RootOU -months -3 -cred $ADCredential |
- Skip-SaturdayResets |
-  Set-RandomPassword -cred $ADCredential |
-   Update-OrgUnit -ou $NoGSuiteLicenseOU -cred $ADCredential |
-    Remove-GSuiteLicense -ou $NoGSuiteLicenseOU |
-     Show-Obj
+# Show-BlockInfo 'Processing stale student accounts'
+# Get-StaleAD -ou $RootOU -months -3 -cred $ADCredential |
+#  Skip-SaturdayResets |
+#   Set-RandomPassword -cred $ADCredential |
+#    Update-OrgUnit -ou $NoGSuiteLicenseOU -cred $ADCredential |
+#     Remove-GSuiteLicense -ou $NoGSuiteLicenseOU |
+#      Show-Obj
 
-Show-BlockInfo 'Removing SUPER stale student accounts'
-Get-StaleAD -ou $RootOU -months -18 -cred $ADCredential |
- Remove-StaleAD -cred $ADCredential |
-  Remove-StaleGSuite |
-   Show-Obj
+# Show-BlockInfo 'Removing SUPER stale student accounts'
+# Get-StaleAD -ou $RootOU -months -18 -cred $ADCredential |
+#  Remove-StaleAD -cred $ADCredential |
+#   Remove-StaleGSuite |
+#    Show-Obj
 
 Clear-SessionData
 if ($WhatIf) { Show-TestRun }

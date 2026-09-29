@@ -11,5 +11,6 @@ FROM
     WHERE [STU].DEL = 0) [STU]
 WHERE
    [STU].[GR] = 12 AND [STU].[HSG] > ' '
-    AND [STU].[DG] > DATEADD(month,-8,GETDATE())
+   AND [STU].[DG] IS NOT NULL
+    -- AND [STU].[DG] > DATEADD(month,-8,GETDATE())
 ;
