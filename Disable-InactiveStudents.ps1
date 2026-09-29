@@ -39,13 +39,29 @@ param (
  [SWITCH]$WhatIf
 )
 
-# Output Colors
-$info = 'Blue'
-$alert = 'Yellow'
-$get = 'Green'
-$update = 'Magenta'
-
 # Script Functions =========================================================================
+
+function Disable-ADObjects ([pscredential]$cred) {
+ process {
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -F magenta
+  Set-ADUser -Identity $_.ObjectGUID -Enabled:$false -Confirm:$false -Credential $cred -WhatIf:$WhatIf
+  $_
+ }
+}
+
+function Disable-Chromebook {
+ process {
+  $id = $_.deviceId
+  if ($crosDev.status -ne 'ACTIVE') { return }
+  $msg = $MyInvocation.MyCommand.name, $_.serialNumber, "& $gam update cros $id action disable"
+  Write-Host ('{0},[{1}],[{2}]' -f $msg) -F DarkCyan
+  if ($WhatIf) { return }
+  $ErrorActionPreference = 'Continue'
+  & $gam update cros $id action disable *>$null
+  $ErrorActionPreference = 'Stop'
+ }
+}
+
 function Export-Report ($ExportData) {
  $exportFileName = 'Recover_Devices-' + (Get-Date -f yyyy-MM-dd)
  $ExportBody = Get-Content -Path .\html\report_export.html -Raw
@@ -110,27 +126,32 @@ function Get-ADData ($ou, [pscredential]$cred) {
   $_.AccountExpirationDate -isnot [datetime] -and
   $_.Enabled -eq $True
  }
- Write-Host ('{0},Count: [{1}]' -f $MyInvocation.MyCommand.Name, @($objs).count) -F $get
+ Write-Host ('{0},Count: [{1}]' -f $MyInvocation.MyCommand.Name, @($objs).count) -F green
  $objs | Sort-Object employeeId
 }
 
 function Get-ActiveSiS ($sqlParams) {
  $query = Get-Content -Path '.\sql\active-students.sql' -Raw
  $results = New-SqlOperation @sqlParams -Query $query | Sort-Object employeeId
- Write-Host ('{0},Count: [{1}]' -f $MyInvocation.MyCommand.name, @($results).count) -F $get
+ Write-Host ('{0},Count: [{1}]' -f $MyInvocation.MyCommand.name, @($results).count) -F green
  $results
 }
 
 function Get-InactiveADObj ($adData, $inactiveIDs) {
- foreach ($id in $inactiveIDs.employeeId) {
+ Write-Host ('{0}, May take some time...' -f $MyInvocation.MyCommand.Name) -F Yellow
+ $result = foreach ($id in $inactiveIDs.employeeId) {
   $adData.Where({ $_.employeeId -eq $id })
  }
+ Write-Host ('{0},Count: {1}' -f $MyInvocation.MyCommand.Name, @($results).count) -F Green
+ $result
 }
 
 function Get-InactiveIDs ($adData, $sisData) {
- Write-Host $MyInvocation.MyCommand.name -F $get
- Compare-Object -ReferenceObject $sisData -DifferenceObject $adData -Property employeeId |
+ Write-Host ('{0}, May take some time...' -f $MyInvocation.MyCommand.Name) -F yellow
+ $results = Compare-Object -ReferenceObject $sisData -DifferenceObject $adData -Property employeeId |
   Where-Object { $_.SideIndicator -eq '=>' }
+ Write-Host ('{0},Count: {1}' -f $MyInvocation.MyCommand.Name, @($results).count) -F Green
+ $results
 }
 
 filter Get-AssignedDeviceUsers ($sqlParams) {
@@ -145,7 +166,7 @@ filter Get-AssignedDeviceUsers ($sqlParams) {
 function Get-InactiveSeniors ($sqlParams) {
  $query = Get-Content -Path '.\sql\get-inactive-seniors.sql' -Raw
  $results = New-SqlOperation @sqlParams -Query $query | Sort-Object employeeId
- Write-Host ('{0},Count: [{1}]' -f $MyInvocation.MyCommand.name, @($results).count) -F $get
+ Write-Host ('{0},Count: [{1}]' -f $MyInvocation.MyCommand.name, @($results).count) -F green
  $results
 }
 
@@ -159,7 +180,7 @@ filter Get-SecondaryStudents {
  $msg = $MyInvocation.MyCommand.name, $data.Mail, $data.Grade
  if (($data.Grade) -and ([int]$data.Grade -is [int])) {
   if ([int]$data.Grade -ge 6) {
-   Write-Host ('{0},[{1}],Grade: [{2}]' -f $msg) -F $get
+   Write-Host ('{0},[{1}],Grade: [{2}]' -f $msg) -F green
    $_
    return
   }
@@ -187,42 +208,6 @@ function Get-StaleAD ($ou, $months, [pscredential]$cred) {
  $objs | Sort-Object employeeId
 }
 
-function Disable-ADObjects ([pscredential]$cred) {
- process {
-  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -F $update
-  Set-ADUser -Identity $_.ObjectGUID -Enabled:$false -Confirm:$false -Credential $cred -WhatIf:$WhatIf
-  $_
- }
-}
-
-function Update-OrgUnit ($ou, [pscredential]$cred) {
- process {
-  Write-Host ('{0},' -f $MyInvocation.MyCommand.Name)
-  $_ | Move-ADObject -TargetPath $ou -Confirm:$false -Credential $cred -WhatIf:$WhatIf
- }
-}
-
-function Update-Chromebooks {
- begin {
-  $crosFields = 'serialNumber,orgUnitPath,deviceId,status'
- }
- process {
-  if ($null -eq $_.group) { return }
-  $data = $_.group[0]
-  $sn = $data.serialNumber
-  $msg = $MyInvocation.MyCommand.name, $data.mail, $sn, "& $gam print cros query `"id: $sn`" fields $crosFields"
-  Write-Host ('{0},[{1}],[{2}],[{3}]' -f $msg) -F $update
-  $ErrorActionPreference = 'Continue'
-  ($crosDev = & $gam print cros query "id: $sn" fields $crosFields | ConvertFrom-Csv)*>$null
-  $ErrorActionPreference = 'Stop'
-  if ($crosDev) {
-   $crosDev | Set-ChromebookOU
-   $crosDev | Disable-Chromebook
-   $_
-  }
- }
-}
-
 function Set-ChromebookOU {
  begin {
   $targOu = '/Chromebooks/Missing'
@@ -231,7 +216,7 @@ function Set-ChromebookOU {
   $id = $_.deviceId
   if ($_.orgUnitPath -match $targOu) { return } # Skip is OU is correct
   $msg = $MyInvocation.MyCommand.name, $_.serialNumber, "& $gam update cros $id ou $targOu"
-  Write-Host ('{0},[{1}],[{2}]' -f $msg) -F $update
+  Write-Host ('{0},[{1}],[{2}]' -f $msg) -F magenta
   if ($WhatIf) { return }
   $ErrorActionPreference = 'Continue'
   & $gam update cros $id ou $targOu *>$null
@@ -248,32 +233,80 @@ function Skip-SaturdayResets {
  }
 }
 
-function Disable-Chromebook {
+# function Remove-GSuiteLicense {
+#  process {
+#   #SKU: 1010310003 = Google Workspace for Education Plus - Legacy (Student)
+#   #SKU: 1010310008 = Google Workspace for Education Plus
+#   Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $_.HomePage) -F magenta
+#   $cmd = "& $gam user {0} delete license 1010310008" -f $_.HomePage
+#   Write-Verbose $cmd
+#   if ($_.HomePage -and -not$WhatIf) {
+#    $ErrorActionPreference = 'Continue'
+#    (& $gam user $_.HomePage delete license 1010310008) *>$null
+#    $ErrorActionPreference = 'Stop'
+#   }
+#   $_
+#  }
+# }
+
+function Remove-GSuiteLicense ($ou) {
+ begin {
+  $license = @(
+   1010310008 # Google Workspace for Education Plus
+  )
+ }
  process {
-  $id = $_.deviceId
-  if ($crosDev.status -ne 'ACTIVE') { return }
-  $msg = $MyInvocation.MyCommand.name, $_.serialNumber, "& $gam update cros $id action disable"
-  Write-Host ('{0},[{1}],[{2}]' -f $msg) -F DarkCyan
-  if ($WhatIf) { return }
-  $ErrorActionPreference = 'Continue'
-  & $gam update cros $id action disable *>$null
+  # if (!($_.gSuiteData)) { return $_ } # Skip if no GSuite data
+  $i = 20
+  do {
+   # Wait for Google Workspace to update user orgUnit
+   ($ouCheck = & $gam print users query "email:$($_.HomePage)" fields 'orgUnitPath' | ConvertFrom-Csv)*>$null
+   if (!$WhatIf -and !$ouCheck) { Start-Sleep 7 }
+   $i--
+  } until ($WhatIf -or $ouCheck.orgUnitPath -match $ou -or ($i -eq 0))
+
+  $ErrorActionPreference = 'SilentlyContinue'
+
+  foreach ($lic in $license) {
+   $msg = $MyInvocation.MyCommand.name, $_.HomePage, $lic
+   Write-Host ('{0},{1},{2}' -f $msg) -F DarkMagenta
+   if (!$WhatIf) {
+    try { (& $gam user "$($_.HomePage)" del license $lic)*>null }
+    catch {
+     Write-Host ('{0},{1},{2},Error Removing License' -f $msg) -F Red
+    }
+   }
+  }
+
   $ErrorActionPreference = 'Stop'
+  $_
  }
 }
 
-function Remove-GSuiteLicense {
+function Remove-StaleAD ([pscredential]$cred) {
  process {
-  #SKU: 1010310003 = Google Workspace for Education Plus - Legacy (Student)
-  #SKU: 1010310008 = Google Workspace for Education Plus
-  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $_.HomePage) -F $update
-  $cmd = "& $gam user {0} delete license 1010310008" -f $_.HomePage
-  Write-Verbose $cmd
-  if ($_.HomePage -and -not$WhatIf) {
-   $ErrorActionPreference = 'Continue'
-   (& $gam user $_.HomePage delete license 1010310008) *>$null
-   $ErrorActionPreference = 'Stop'
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $_.SamAccountName) -F yellow
+  $params = @{
+   Identity   = $_.ObjectGUID
+   Recursive  = $true
+   Confirm    = $false
+   Credential = $cred
+   WhatIf     = $WhatIf
   }
+  Remove-ADObject @params
   $_
+ }
+}
+
+function Remove-StaleGSuite {
+ process {
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $_.HomePage) -F yellow
+  Write-Verbose ("& $gam delete user {0}" -f $_.HomePage)
+  if ($WhatIf) { return }
+  $ErrorActionPreference = 'Continue'
+  & $gam delete user $_.HomePage
+  $ErrorActionPreference = 'Stop'
+  # pause
  }
 }
 
@@ -284,7 +317,7 @@ function Send-AlertEmail ([pscredential]$cred) {
  }
  process {
   $msg = $MyInvocation.MyCommand.name, ($MailTarget -join ','), ($CCAddress -join ','), ($BccAddress -join ',')
-  Write-Host ('{0},To: [{1}],CC: [{2}],BCc: [{3}]' -f $msg) -F $info
+  Write-Host ('{0},To: [{1}],CC: [{2}],BCc: [{3}]' -f $msg) -F blue
   $mailParams = @{
    To         = $MailTarget
    From       = $cred.Username
@@ -313,7 +346,7 @@ function Send-ReportData {
   $AttachmentPath,
   $ExportHTML
  )
- Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, ($ExportMailTarget -join ',')  ) -F $info
+ Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, ($ExportMailTarget -join ',')  ) -F blue
  $mailParams = @{
   To         = $ExportMailTarget
   From       = $MailCredential.Username
@@ -334,7 +367,7 @@ function Set-RandomPassword ([pscredential]$cred) {
  process {
   if ($_.randomPW -ne $true) { return $_ }
   # Password Randomizer - only for users disabled and not logged in for over 60 days.
-  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -F $update
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -F magenta
   $params = @{
    Identity    = $_.ObjectGUID
    NewPassword = ConvertTo-SecureString -String (New-RandomPassword) -AsPlainText -Force
@@ -349,7 +382,7 @@ function Set-RandomPassword ([pscredential]$cred) {
 
 function Set-GSuiteArchiveOn {
  process {
-  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -F $update
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -F magenta
   if ($_.HomePage -and -not$WhatIf) {
    $ErrorActionPreference = 'Continue'
    (& $gam update user $_.HomePage archived on) *>$null
@@ -361,7 +394,7 @@ function Set-GSuiteArchiveOn {
 
 function Set-GSuiteSuspended {
  process {
-  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -F $update
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -F magenta
   if ($_.HomePage -and -not$WhatIf) {
    $ErrorActionPreference = 'Continue'
    (& $gam update user $_.HomePage suspended on) *>$null
@@ -373,7 +406,7 @@ function Set-GSuiteSuspended {
 
 function Set-UserAccountControl ([pscredential]$cred) {
  process {
-  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -F $update
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.name) -F magenta
   $params = @{
    Identity   = $_.ObjectGUID
    Replace    = @{ UserAccountControl = 546 }
@@ -383,33 +416,6 @@ function Set-UserAccountControl ([pscredential]$cred) {
   }
   Set-ADUser @params
   $_
- }
-}
-
-function Remove-StaleAD ([pscredential]$cred) {
- process {
-  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $_.SamAccountName) -F $alert
-  $params = @{
-   Identity   = $_.ObjectGUID
-   Recursive  = $true
-   Confirm    = $false
-   Credential = $cred
-   WhatIf     = $WhatIf
-  }
-  Remove-ADObject @params
-  $_
- }
-}
-
-function Remove-StaleGSuite {
- process {
-  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $_.HomePage) -F $alert
-  Write-Verbose ("& $gam delete user {0}" -f $_.HomePage)
-  if ($WhatIf) { return }
-  $ErrorActionPreference = 'Continue'
-  & $gam delete user $_.HomePage
-  $ErrorActionPreference = 'Stop'
-  # pause
  }
 }
 
@@ -432,6 +438,26 @@ function Skip-SeniorGrads ($inactiveSeniors) {
  }
 }
 
+function Update-Chromebooks {
+ begin {
+  $crosFields = 'serialNumber,orgUnitPath,deviceId,status'
+ }
+ process {
+  if ($null -eq $_.group) { return }
+  $data = $_.group[0]
+  $sn = $data.serialNumber
+  $msg = $MyInvocation.MyCommand.name, $data.mail, $sn, "& $gam print cros query `"id: $sn`" fields $crosFields"
+  Write-Host ('{0},[{1}],[{2}],[{3}]' -f $msg) -F magenta
+  $ErrorActionPreference = 'Continue'
+  ($crosDev = & $gam print cros query "id: $sn" fields $crosFields | ConvertFrom-Csv)*>$null
+  $ErrorActionPreference = 'Stop'
+  if ($crosDev) {
+   $crosDev | Set-ChromebookOU
+   $crosDev | Disable-Chromebook
+   $_
+  }
+ }
+}
 
 function Update-Grade ([pscredential]$cred) {
  process {
@@ -448,6 +474,14 @@ function Update-Grade ([pscredential]$cred) {
  }
 }
 
+function Update-OrgUnit ($ou, [pscredential]$cred) {
+ process {
+  if ($_.DistinguishedName -match $ou ) { return }
+  Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.Name, $_.SamAccountName) -F Magenta
+  $_ | Move-ADObject -TargetPath $ou -Confirm:$false -Credential $cred -WhatIf:$WhatIf
+ }
+}
+
 # ======================================= Processing ======================================
 if ($WhatIf) { Show-TestRun }
 
@@ -459,9 +493,6 @@ Import-Module -Name Mailozaurr -Cmdlet Send-EMailMessage
 Show-BlockInfo main
 Clear-SessionData
 $gam = 'C:\GAM7\gam.exe'
-
-# $cmdlets = 'Get-ADUser', 'Set-ADUser', 'Set-ADAccountPassword', 'Remove-ADobject' , 'Move-ADObject'
-# Connect-ADSession -DomainControllers $DomainControllers -Cmdlets $cmdlets -Credential $ADCredential
 
 $sqlParams = @{
  Server     = $SISServer
@@ -477,7 +508,7 @@ $inactiveSeniors = Get-InactiveSeniors $sqlParams -Query (Get-Content .\sql\get-
 
 $aDObjs = Get-InactiveADObj -adData $studentADData -inactiveIDs $inactiveIDs
 
-Export-Report -ExportData (($aDObjs | Get-AssignedDeviceUsers $sqlParams).group)
+# Export-Report -ExportData (($aDObjs | Get-AssignedDeviceUsers $sqlParams).group)
 
 Show-BlockInfo 'Processing inactive student accounts'
 $adObjs |
@@ -486,7 +517,7 @@ $adObjs |
    # Disable-ADObjects -cred $ADCredential|
    # Set-UserAccountControl -cred $ADCredential|
    # Set-GsuiteSuspended |
-   # Remove-GsuiteLicense |
+   # Remove-GsuiteLicense -ou $NoGSuiteLicenseOU |
    Set-GSuiteArchiveOn |
     Get-AssignedDeviceUsers $sqlParams |
      Update-Chromebooks |
@@ -500,7 +531,7 @@ Get-StaleAD -ou $RootOU -months -3 -cred $ADCredential |
  Skip-SaturdayResets |
   Set-RandomPassword -cred $ADCredential |
    Update-OrgUnit -ou $NoGSuiteLicenseOU -cred $ADCredential |
-    Remove-GSuiteLicense |
+    Remove-GSuiteLicense -ou $NoGSuiteLicenseOU |
      Show-Obj
 
 Show-BlockInfo 'Removing SUPER stale student accounts'
