@@ -79,3 +79,4 @@ notes.ps1
 /jenkins.ps1.old
 /reports/*.xlsx
 *.xlsx
+/exports

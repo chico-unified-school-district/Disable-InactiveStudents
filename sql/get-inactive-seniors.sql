@@ -1,6 +1,5 @@
 SELECT
-    [STU].[ID] AS [permId]
-    ,[STU].[ID] AS [employeeId]
+    [STU].[ID]
     , [STU].[NID] AS [gmail]
     , [STU].[HSG] AS [completionStatus]
     , CONVERT(VARCHAR(10),[STU].[DG],101) AS [completionDate]
