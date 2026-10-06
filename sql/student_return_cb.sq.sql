@@ -1,4 +1,5 @@
-SELECT distinct STU.SC AS Sch,
+WITH Ranked AS (
+SELECT STU.SC AS School,
 STU.ID AS PermID,
 STU.LN AS LastName,
 STU.FN AS FirstName,
@@ -15,7 +16,8 @@ DRI.SR AS SerialNumber,
 [DRA].[CC] AS [Condition],
 [DRA].[CO] AS [Comment],
 CONVERT(varchar,DRA.DT,23) AS [IssuedDate],
-STU.AD+', '+ STU.CY+', '+  STU.ST+' '+STU.ZC  AS [Address]
+STU.AD+', '+ STU.CY+', '+  STU.ST+' '+STU.ZC  AS [Address],
+ROW_NUMBER() OVER (PARTITION BY STU.ID ORDER BY DRA.DT DESC) AS RowNum
 FROM STU INNER JOIN DRA ON STU.ID = DRA.ID AND DRA.ST = 'S' AND DRA.DEL = 0
 INNER JOIN DRT ON DRA.RID = DRT.RID AND DRT.DEL = 0
 INNER JOIN DRI ON DRA.RID = DRI.RID AND DRA.RIN = DRI.RIN
@@ -25,4 +27,9 @@ WHERE  DRA.RD IS NULL
 and [DRA].[CD] != 'S'
 and [PWA].[TY] = 'P'
 AND DRI.BC IS NOT NULL
-AND STU.ID = @PermID
+)
+SELECT School, PermID, LastName, FirstName, Parentname, ParentEMail, Fatherworkphone,
+Motherworkphone, Grade, Mail, ParentPortalEmail, Barcode, SerialNumber, Code1,
+[Condition], Comment, IssuedDate, Address
+FROM Ranked
+WHERE RowNum = 1

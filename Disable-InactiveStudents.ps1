@@ -24,6 +24,7 @@ param (
  # [Parameter(Mandatory = $True)][Alias('DCs')][string[]]$DomainControllers,
  [Parameter(Mandatory = $True)][string]$OrgUnitNoLicAD,
  [Parameter(Mandatory = $True)][string]$OrgUnitNoLicGoogle,
+ [Parameter(Mandatory = $True)][string]$OrgUnitGoogleCrOS,
  [Parameter(Mandatory = $True)][PSCredential]$ADCredential,
  [Parameter(Mandatory = $True)][string]$SISServer,
  [Parameter(Mandatory = $True)][string]$SISDatabase,
@@ -58,14 +59,16 @@ function Disable-ADObjects ([pscredential]$cred) {
 
 function Disable-Chromebook {
  process {
-  $id = $_.deviceId
-  if ($crosDev.status -ne 'ACTIVE') { return }
-  $msg = $MyInvocation.MyCommand.name, $_.serialNumber, "& $gam redirect stderr null update cros $id action disable"
+  $id = $_.googleCrOS.deviceId
+  if ($_.googleCrOS.status -ne 'ACTIVE') { return $_ }
+  $msg = $MyInvocation.MyCommand.name, $_.info, "& $gam redirect stderr null update cros $id action disable"
   Write-Host ('{0},[{1}],[{2}]' -f $msg) -F DarkCyan
-  if ($WhatIf) { return }
-  $ErrorActionPreference = 'Continue'
-  & $gam redirect stderr null update cros $id action disable *>$null
-  $ErrorActionPreference = 'Stop'
+  if ($WhatIf) {
+   $ErrorActionPreference = 'Continue'
+   (& $gam redirect stderr null update cros $id action disable)*>$null
+   $ErrorActionPreference = 'Stop'
+  }
+  $_
  }
 }
 
@@ -96,23 +99,6 @@ function Export-Report ($ExportData) {
  Send-ReportData -AttachmentPath .\reports\$exportFileName.xlsx -ExportHTML $ExportBody
 }
 
-function Format-Html {
- begin {
-  $html = Get-Content -Path .\html\return_chromebook_message.html -Raw
- }
- process {
-  $data = $_.group[0]
-  $stuName = $data.FirstName + ' ' + $data.LastName
-  $output = @{html = $html; stuName = $stuName ; gmail = $data.mail }
-  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $data.mail) -F DarkCyan
-  $parentEmails = $_ | Format-ParentEmailAddresses
-  $output.html = $output.html.Replace('{email}', $parentEmails)
-  $output.html = $output.html.Replace('{student}', $stuName)
-  $output.html = $output.html.Replace('{barcode}', $data.Barcode)
-  $output
- }
-}
-
 function Format-Object {
  begin {
   Write-Host ('{0}, May take some time...' -f $MyInvocation.MyCommand.Name) -F Yellow
@@ -121,9 +107,12 @@ function Format-Object {
   [pscustomobject]@{
    ad          = $null
    expiredGrad = $null
+   google      = $null
+   googleCroS  = $null
    grad        = $null
    id          = $_
    info        = $null
+   sisCrOS     = $null
   }
  }
 }
@@ -148,10 +137,15 @@ function Format-ParentEmailAddresses {
  }
 }
 
-function Get-ADData ($props, [pscredential]$cred) {
+function Get-ADData ($props, $months, [pscredential]$cred) {
+ $cutOff = (Get-Date).AddMonths(-$months)
  $filter = "
  employeeType -eq 'student' -and
  -not(Description -like '*test*')
+ -and (
+  (LastLogonDate -lt '$cutOff' -and Enabled -eq 'false') -or
+  (LastLogonDate -gt '$cutOff' -and Enabled -eq 'true')
+ )
  "
  $params = @{
   Filter     = $filter
@@ -170,30 +164,61 @@ function Get-ActiveSiS ($sqlParams) {
  $results
 }
 
-# function Get-InactiveADObj ($adData, $inactiveIDs) {
-#  Write-Host ('{0}, May take some time...' -f $MyInvocation.MyCommand.Name) -F Yellow
-#  $result = foreach ($id in $inactiveIDs.employeeId) {
-#   $adData.Where({ $_.employeeId -eq $id })
-#  }
-#  Write-Host ('{0},Count: {1}' -f $MyInvocation.MyCommand.Name, @($results).count) -F Green
-#  $result
-# }
+function Get-GoogleCrOSData {
+ Get-ChildItem -Path '.\data\*' -Filter *cros* -Exclude "cros-$(Get-Date -Format 'yyyy-MM-dd').csv", '.gitkeep' |
+  Remove-Item -Force -Confirm:$false
 
-function Get-InactiveIDs ($adData, $sisData) {
- Write-Host ('{0}, May take some time...' -f $MyInvocation.MyCommand.Name) -F yellow
- $results = Compare-Object -ReferenceObject $adData.EmployeeId -DifferenceObject $sisData.ID |
-  Where-Object { $_.SideIndicator -eq '<=' } |
-   Select-Object -ExpandProperty InputObject
- Write-Host ('{0},Count: {1}' -f $MyInvocation.MyCommand.Name, @($results).count) -F Green
+ if (Test-Path -Path ".\data\cros-$(Get-Date -Format 'yyyy-MM-dd').csv") {
+  Write-Host ('{0},Using cached Google CrOS data.' -f $MyInvocation.MyCommand.Name) -F Green
+  $results = Import-Csv -Path ".\data\cros-$(Get-Date -Format 'yyyy-MM-dd').csv"
+ }
+ else {
+  Write-Host ('{0},May take some time...' -f $MyInvocation.MyCommand.Name) -F Yellow
+  $fields = 'serialNumber,orgUnitPath,deviceId,status'
+  ($results = gam redirect stderr null print cros query 'status:provisioned' fields $fields | ConvertFrom-Csv)*>$null
+  # Cache the Google data for future use
+  $results | Export-Csv -Path ".\data\cros-$(Get-Date -Format 'yyyy-MM-dd').csv" -NoTypeInformation
+ }
+
+ Write-Host ('{0},Count: [{1}]' -f $MyInvocation.MyCommand.Name, @($results).count) -F green
  $results
 }
 
-filter Get-AssignedDeviceUsers ($sqlParams) {
+function Get-GoogleUserData {
+ Get-ChildItem -Path '.\data\*' -Filter *google* -Exclude "google-$(Get-Date -Format 'yyyy-MM-dd').csv", '.gitkeep' |
+  Remove-Item -Force -Confirm:$false
+
+ if (Test-Path -Path ".\data\google-$(Get-Date -Format 'yyyy-MM-dd').csv") {
+  Write-Host ('{0},Using cached Google user data.' -f $MyInvocation.MyCommand.Name) -F Green
+  $results = Import-Csv -Path ".\data\google-$(Get-Date -Format 'yyyy-MM-dd').csv"
+ }
+ else {
+  Write-Host ('{0},May take some time...' -f $MyInvocation.MyCommand.Name) -F Yellow
+  $fields = 'archived,suspended,orgUnitPath'
+  ($results = gam redirect stderr null print users query 'orgTitle=student' fields $fields | ConvertFrom-Csv)*>$null
+  # Cache the Google data for future use
+  $results | Export-Csv -Path ".\data\google-$(Get-Date -Format 'yyyy-MM-dd').csv" -NoTypeInformation
+ }
+
+ Write-Host ('{0},Count: [{1}]' -f $MyInvocation.MyCommand.Name, @($results).count) -F green
+ $results
+}
+
+function Get-InactiveIDs ($adData, $sisData) {
+ Write-Host ('{0},May take some time...' -f $MyInvocation.MyCommand.Name) -F yellow
+ $results = Compare-Object -ReferenceObject $adData.EmployeeId -DifferenceObject $sisData.ID |
+  Where-Object { $_.SideIndicator -eq '<=' } |
+   Select-Object -ExpandProperty InputObject
+ Write-Host ('{0},Count: [{1}]' -f $MyInvocation.MyCommand.Name, @($results).count) -F Green
+ $results
+}
+
+filter Get-AssignedDeviceUser ($sqlParams) {
  begin { $query = Get-Content -Path .\sql\student_return_cb.sq.sql -Raw }
  process {
-  $sqlVars = "permId=$($_.ad.EmployeeId)"
-  Write-Verbose ('{0},{1},{2}' -f $MyInvocation.MyCommand.name, $_.info, ($sqlVars -join ','))
-  New-SqlOperation @sqlParams -Query $query -Parameters $sqlVars | Group-Object
+  $results = New-SqlOperation @sqlParams -Query $query -Parameters $sqlVars | ConvertTo-Csv | ConvertFrom-Csv
+  Write-Host ('{0},Count: [{1}]' -f $MyInvocation.MyCommand.Name, @($results).count) -F green
+  $results
  }
 }
 
@@ -202,47 +227,6 @@ function Get-InactiveSeniors ($sqlParams) {
  $results = New-SqlOperation @sqlParams -Query $query | Sort-Object employeeId
  Write-Host ('{0},Count: [{1}]' -f $MyInvocation.MyCommand.name, @($results).count) -F green
  $results
-}
-
-filter Get-SecondaryStudents {
- if ($null -eq $_.group) {
-  $wMsg = $MyInvocation.MyCommand.name, $_.samAccountName, $_.gecos
-  Write-Warning ('{0},[{1}],Grade: [{2}],Grade error.' -f $wMsg)
-  return
- }
- $data = $_.group[0]
- $msg = $MyInvocation.MyCommand.name, $data.Mail, $data.Grade
- if (($data.Grade) -and ([int]$data.Grade -is [int])) {
-  if ([int]$data.Grade -ge 6) {
-   Write-Host ('{0},[{1}],Grade: [{2}]' -f $msg) -F green
-   $_
-   return
-  }
-  Write-Host ('{0},[{1}],Grade: [{2}],Primary student detected. Skipping.' -f $msg) -F Yellow
- }
-}
-
-# function Get-StaleAD ([int]$months) {
-#  process {
-#   if ($_.ad.LastLogonDate -gt $cutOff -and $_.ad.WhenCreated -gt $cutOff) { return }
-#   $_
-#  }
-# }
-
-function Set-ChromebookOU {
- begin {
-  $targOu = '/Chromebooks/Missing'
- }
- process {
-  $id = $_.deviceId
-  if ($_.orgUnitPath -match $targOu) { return } # Skip is OU is correct
-  $msg = $MyInvocation.MyCommand.name, $_.serialNumber, "& $gam redirect stderr null update cros $id ou $targOu"
-  Write-Host ('{0},[{1}],[{2}]' -f $msg) -F magenta
-  if ($WhatIf) { return }
-  $ErrorActionPreference = 'Continue'
-  & $gam redirect stderr null update cros $id ou $targOu *>$null
-  $ErrorActionPreference = 'Stop'
- }
 }
 
 function Remove-GoogleLicense ($ou) {
@@ -255,14 +239,12 @@ function Remove-GoogleLicense ($ou) {
   # if (!($_.gSuiteData)) { return $_ } # Skip if no GSuite data
   if (!$WhatIf) {
    $i = 20
-   if (!$WhatIf) {
-    do {
-     # Wait for Google Workspace to update user orgUnit
-     ($ouCheck = & $gam redirect stderr null print users query "email:$($_.HomePage)" fields 'orgUnitPath' | ConvertFrom-Csv)*>$null
-     if (!$WhatIf -and !$ouCheck) { Start-Sleep 7 }
-     $i--
-    } until ($WhatIf -or $ouCheck.orgUnitPath -match $ou -or ($i -eq 0))
-   }
+   do {
+    # Wait for Google Workspace to update user orgUnit
+    ($ouCheck = & $gam redirect stderr null print users query "email:$($_.HomePage)" fields 'orgUnitPath' | ConvertFrom-Csv)*>$null
+    if (!$ouCheck) { Start-Sleep 7 }
+    $i--
+   } until ($ouCheck.orgUnitPath -match $ou -or ($i -eq 0))
   }
 
   $ErrorActionPreference = 'SilentlyContinue'
@@ -287,7 +269,7 @@ function Remove-GoogleLicense ($ou) {
 
 function Remove-StaleAD ([pscredential]$cred) {
  process {
-  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $_.SamAccountName) -F yellow
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $_.info) -F Magenta
   $params = @{
    Identity   = $_.ad.ObjectGUID
    Recursive  = $true
@@ -302,11 +284,11 @@ function Remove-StaleAD ([pscredential]$cred) {
 
 function Remove-StaleGSuite {
  process {
-  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $_.info) -F yellow
+  Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $_.info) -F Magenta
   Write-Verbose ("& $gam redirect stderr null delete user {0}" -f $_.ad.HomePage)
   if ($WhatIf) { return }
   $ErrorActionPreference = 'Continue'
-  & $gam redirect stderr null delete user $_.ad.HomePage
+  (& $gam redirect stderr null delete user $_.ad.HomePage)*>$null
   $ErrorActionPreference = 'Stop'
   # pause
  }
@@ -325,6 +307,13 @@ function Select-ADStale ([int]$months) {
  process {
   if (($_.ad.LastLogonDate -is [datetime] -and $_.ad.LastLogonDate -lt $logonCutOff) -or
    ($_.ad.LastLogonDate -isnot [datetime] -and $_.ad.WhenCreated -lt $logonCutOff)) { $_ }
+ }
+}
+
+filter Select-Secondary {
+ process {
+  if ($_.ad.gecos -isnot [int]) { return $_ }
+  $_ | Where-Object { [int]$_.ad.gecos -ge 6 }
  }
 }
 
@@ -377,8 +366,34 @@ function Send-ReportData {
   Port       = 587
   WhatIf     = $WhatIf
  }
+ if ($BccAddress) { $mailParams += @{Bcc = $BccAddress } }
  Write-Verbose ($_.html | Out-String)
  Send-EmailMessage @mailParams
+}
+
+function Send-MissingCrOSReport ($to, $from, $bcc) {
+ process {
+  $_.data | Export-Csv -Path '.\reports\missing_cros_report.csv' -NoTypeInformation -Force
+  $params = @{
+   To         = $to
+   From       = '<{0}>' -f $from.Username
+   Subject    = $_.Subject
+   Html       = $_.Body
+   Attachment = '.\reports\missing_cros_report.csv'
+   SMTPServer = 'smtp.office365.com'
+   Cred       = $from
+   UseSSL     = $True
+   Port       = 587
+   WhatIf     = $WhatIf
+   Suppress   = $True
+  }
+  if ($bcc) { $params += @{Bcc = $bcc } }
+  Send-EmailMessage @params
+  Write-Verbose ($params | Out-String)
+  $msg = $MyInvocation.MyCommand.name, ($params.To -join ','), $params.Subject
+  Write-Host ('{0},Recipient: [{1}],Subject: [{2}]' -f $msg) -F Green
+  $_
+ }
 }
 
 function Set-RandomPassword ([pscredential]$cred) {
@@ -407,6 +422,54 @@ function Set-PropAD ($data) {
  }
 }
 
+function Set-PropEmailParams {
+ begin {
+  $tableData = @()
+  $mailObj = [PSCustomObject]@{
+   Subject = 'Exiting Student Chromebook Return - {0}' -f (Get-Date -f 'dddd, MMMM dd, yyyy')
+   Body    = $null
+   data    = $null
+  }
+ }
+ process { $tableData += $_.sisCrOS }
+ end {
+  if (@($tableData).count -lt 1) { return }
+  $mailObj.data = $tableData
+  $css = Get-Content -Path '.\html\style.css' -Raw
+  $head = '<style TYPE="TEXT/CSS">' + $css + '</style>'
+  $message = 'Hello,<br><br>Attached is the missing Chromebooks report.'
+  $sig = Get-Content -Path '.\html\emailSig.html' -Raw
+  $params = @{
+   Head        = $head
+   PreContent  = $message
+   Property    = 'test'
+   PostContent = $sig
+  }
+  $mailObj.body = @{'See attached' = $null } | ConvertTo-Html @params | Out-String
+  Write-Verbose ($mailObj | Out-String )
+  Write-Verbose ( $mailObj.Body )
+  $mailObj
+ }
+}
+
+function Set-PropGoogleCroS ($data) {
+ process {
+  $sn = $_.sisCrOS.SerialNumber
+  $_.googleCrOS = $data.Where({ $_.serialNumber -eq $sn })
+  if (!$_.googleCrOS) { return }
+  $_
+ }
+}
+
+function Set-PropGoogleData ($data) {
+ process {
+  $mail = $_.ad.HomePage
+  $_.google = $data.Where({ $_.primaryEmail -eq $mail })
+  # if (!$_.google) { Write-Verbose ('{0},No Google data found for {1}' -f $MyInvocation.MyCommand.Name, $mail); Read-Host 'continue' }
+  $_
+ }
+}
+
 function Set-PropGrad ($data) {
  process {
   $id = $_.ad.EmployeeId
@@ -422,13 +485,14 @@ function Set-PropInfo {
  }
 }
 
-# function Set-PropSIS ($data) {
-#  process {
-#   $id = $_.id
-#   $_.sis = $data.Where({ $_.ID -eq $id }) | ConvertTo-Csv | ConvertFrom-Csv
-#   $_
-#  }
-# }
+function Set-PropSisCrOS ($data) {
+ process {
+  $id = $_.id
+  $_.sisCrOS = $data.Where({ $_.PermID -eq $id })
+  if (!$_.sisCrOS) { return }
+  $_
+ }
+}
 
 function Set-UserAccountControl ([pscredential]$cred) {
  process {
@@ -454,11 +518,19 @@ function Show-MissingData {
  }
 }
 
-function Show-Obj {
- begin { $i = 0 }
+function Show-Obj ($data) {
+ begin {
+  $i = 0
+  $total = @($data).count
+ }
  process {
   $i++
-  Write-Verbose ($i, $MyInvocation.MyCommand.Name, $_ | Out-String)
+  if ($data) {
+   Write-Verbose (('{0},{1}/{2}' -f $MyInvocation.MyCommand.Name, $i, $total), $_ | Out-String)
+  }
+  else {
+   Write-Verbose ("$($MyInvocation.MyCommand.Name): $i", $_ | Out-String)
+  }
   if ($Wait) { Read-Host 'Press Enter to continue...' }
   elseif ($Slow) { Start-Sleep 2 }
   else { Start-Sleep 0 }
@@ -481,16 +553,7 @@ function Skip-Disabled ($ou) {
  }
 }
 
-function Skip-SaturdayResets {
- process {
-  if ($null -eq $_.LastLogonDate) { return }
-  #   Write-Verbose (get-date $_.LastLogonDate).dayofweek -f Green
-  if ((Get-Date $_.LastLogonDate).dayofweek -eq 'Saturday') { return }
-  $_
- }
-}
-
-function Skip-RecentGraduates ($months) {
+function Skip-RecentGraduate ($months) {
  process {
   if (!$_.grad) { return $_ }
   $completionGraceCutoffDate = (Get-Date $_.grad.completionDate).AddMonths($months)
@@ -498,8 +561,17 @@ function Skip-RecentGraduates ($months) {
   if ((Get-Date) -lt $completionGraceCutoffDate) {
    return (Write-Host ('{0},{1},{2},Qualifying Senior Detected. Skipping' -f $msg) -f Magenta)
   }
-  Write-Verbose ('{0},{1},{2},Expired Senior detected.' -f $msg)
+  # Write-Verbose ('{0},{1},{2},Expired Senior detected.' -f $msg)
   $_.expiredGrad = $true
+  $_
+ }
+}
+
+function Skip-SaturdayResets {
+ process {
+  if ($null -eq $_.LastLogonDate) { return }
+  #   Write-Verbose (get-date $_.LastLogonDate).dayofweek -f Green
+  if ((Get-Date $_.LastLogonDate).dayofweek -eq 'Saturday') { return }
   $_
  }
 }
@@ -513,6 +585,7 @@ function Skip-TestAccounts {
 
 function Update-AccountExpirationDate ([pscredential]$cred) {
  process {
+  if ($_.ad.AccountExpirationDate -is [datetime]) { return $_ }
   Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.info) -F magenta
   $params = @{
    Identity   = $_.ad.ObjectGUID
@@ -526,7 +599,7 @@ function Update-AccountExpirationDate ([pscredential]$cred) {
  }
 }
 
-function Update-Chromebooks {
+function Update-Chromebook {
  begin {
   $crosFields = 'serialNumber,orgUnitPath,deviceId,status'
  }
@@ -549,6 +622,7 @@ function Update-Chromebooks {
 
 function Update-GoogleArchive {
  process {
+  if ($_.google.archived) { return $_ }
   Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.name, $_.info) -F magenta
   if (!$WhatIf -and $_.ad.HomePage) {
    $ErrorActionPreference = 'Continue'
@@ -561,6 +635,7 @@ function Update-GoogleArchive {
 
 function Update-GoogleSuspended {
  process {
+  if ($_.google.suspended) { return $_ }
   Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.info) -F magenta
   if ($_.ad.HomePage -and -not$WhatIf) {
    $ErrorActionPreference = 'Continue'
@@ -606,9 +681,24 @@ function Update-OrgUnitAD ($ou, [pscredential]$cred) {
 
 function Update-OrgUnitGoogle ($ou) {
  process {
-  # if ($_.gSuiteData.orgUnitPath -match $ou) { return $_ }
+  if ($_.google.orgUnitPath -match $ou) { return $_ }
   Write-Host ('{0},{1},[{2}]' -f $MyInvocation.MyCommand.Name, $_.info, $ou) -F Magenta
-  if (!$WhatIf) { (& $gam redirect stderr nullupdate user "$($_.ad.HomePage)" org "$ou")*>null }
+  if (!$WhatIf) { (& $gam redirect stderr null update user "$($_.ad.HomePage)" org "$ou")*>null }
+  $_
+ }
+}
+
+function Update-OrgUnitGoogleCrOS ($ou) {
+ process {
+  if ($_.googleCrOS.orgUnitPath -match $ou) { return }
+  $id = $_.googleCrOS.deviceId
+  $msg = $MyInvocation.MyCommand.name, $_.info, "& $gam redirect stderr null update cros $id ou $ou"
+  Write-Host ('{0},[{1}],[{2}]' -f $msg) -F magenta
+  if (!$WhatIf) {
+   $ErrorActionPreference = 'Continue'
+   (& $gam redirect stderr null update cros $id ou $ou)*>$null
+   $ErrorActionPreference = 'Stop'
+  }
   $_
  }
 }
@@ -633,24 +723,26 @@ $sqlParams = @{
 
 $adProps = 'AccountExpirationDate', 'Description', 'EmployeeID', 'gecos', 'HomePage',
 'info', 'LastLogonDate', 'title', 'WhenCreated'
-$adData = Get-ADData -props $adProps -cred $ADCredential
+$adData = Get-ADData -props $adProps -months 18 -cred $ADCredential
 
-$activeSiS = Get-ActiveSiS $sqlParams
+$activeSiS = Get-ActiveSiS -sqlParams $sqlParams
 $inactiveIds = Get-InactiveIds -ad $adData -sis $activeSiS
+$inactiveSeniors = Get-InactiveSeniors -sqlParams $sqlParams
+$assignedDeviceUser = Get-AssignedDeviceUser -sqlParams $sqlParams
 
-$inactiveSeniors = Get-InactiveSeniors $sqlParams -Query (Get-Content .\sql\get-inactive-seniors.sql -Raw)
+$googleData = Get-GoogleUserData
+$googleCrOSData = Get-GoogleCrOSData
 
-# Export-Report -ExportData (($aDObjs | Get-AssignedDeviceUsers $sqlParams).group)
-Show-BlockInfo 'Preparing AD objects'
+# Export-Report -ExportData (($aDObjs | Get-AssignedDeviceUser $sqlParams).group)
+
+Show-BlockInfo 'Preparing objects'
 $inactive = $inactiveIds |
  Format-Object |
   Set-PropAD -data $adData |
    Set-PropInfo |
-    Set-PropGrad -data $inactiveSeniors |
-     Skip-RecentGraduates -months 2
-# Show-MissingData |
-# Export-Data -filePath '.\export\inactive-students.csv' |
-# Show-Obj
+    Set-PropGoogleData -data $googleData |
+     Set-PropGrad -data $inactiveSeniors |
+      Skip-RecentGraduate -months 2
 
 Show-BlockInfo 'Disabling inactive student accounts'
 $inactive |
@@ -661,18 +753,22 @@ $inactive |
      Update-OrgUnitGoogle -ou $OrgUnitNoLicGoogle |
       Remove-GoogleLicense -ou $OrgUnitNoLicGoogle |
        Update-GoogleSuspended |
-        # Set-RandomPassword -cred $ADCredential |
         Update-AccountExpirationDate -cred $ADCredential |
          Show-Obj
 
-Show-BlockInfo 'Chrome devices'
-$inactive |
- Get-AssignedDeviceUsers $sqlParams |
-  Update-Chromebooks |
-   Get-SecondaryStudents |
-    Format-Html |
-     Send-AlertEmail -cred $MailCredential |
-      Show-Obj
+Show-BlockInfo 'Update CrOS devices'
+$inactiveStudentsWithCrOSDevices = $inactive |
+ Select-Secondary |
+  Set-PropSisCrOS -data $assignedDeviceUser |
+   Set-PropGoogleCrOS -data $googleCrOSData |
+    Update-OrgUnitGoogleCrOS -ou $OrgUnitGoogleCrOS |
+     Disable-Chromebook
+
+Show-BlockInfo 'Email CrOS report'
+$inactiveStudentsWithCrOSDevices |
+ Set-PropEmailParams |
+  Send-MissingCrOSReport -to $MailTarget -from $MailCredential -bcc $BccAddress |
+   Show-Obj
 
 Show-BlockInfo 'Removing stale student accounts'
 $inactive |
@@ -680,7 +776,7 @@ $inactive |
   Select-ADStale -months 18 |
    Remove-StaleAD -cred $ADCredential |
     Remove-StaleGSuite |
-     Show-Obj
+     Show-Obj -data $inactiveIds
 
 Clear-SessionData
 if ($WhatIf) { Show-TestRun }

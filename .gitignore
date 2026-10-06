@@ -78,5 +78,8 @@ notes.ps1
 /bin/gam.exe
 /jenkins.ps1.old
 /reports/*.xlsx
+/reports/*.csv
 *.xlsx
-/exports
+/data/*.csv
+/export/*.csv
+/null
