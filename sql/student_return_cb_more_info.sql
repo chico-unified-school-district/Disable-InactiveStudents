@@ -28,10 +28,8 @@ and [DRA].[CD] != 'S'
 and [PWA].[TY] = 'P'
 AND DRI.BC IS NOT NULL
 )
-SELECT School, PermID, LastName, FirstName, Grade, Mail, Barcode, SerialNumber,
- Code1, Comment, IssuedDate
--- SELECT School, PermID, LastName, FirstName, Parentname, ParentEMail, Fatherworkphone,
--- Motherworkphone, Grade, Mail, ParentPortalEmail, Barcode, SerialNumber, Code1,
--- [Condition], Comment, IssuedDate, Address
+SELECT School, PermID, LastName, FirstName, Parentname, ParentEMail, Fatherworkphone,
+Motherworkphone, Grade, Mail, ParentPortalEmail, Barcode, SerialNumber, Code1,
+[Condition], Comment, IssuedDate, Address
 FROM Ranked
 WHERE RowNum = 1

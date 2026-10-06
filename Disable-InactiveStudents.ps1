@@ -88,17 +88,6 @@ function Export-Data ([string]$filePath) {
  }
 }
 
-function Export-Report ($ExportData) {
- $exportFileName = 'Recover_Devices-' + (Get-Date -f yyyy-MM-dd)
- $ExportBody = Get-Content -Path .\html\report_export.html -Raw
- Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, ".\reports\$exportFileName") -F DarkCyan
- if (-not(Test-Path -Path .\reports\)) { New-Item -Type Directory -Name reports -Force }
- Write-Host 'Export data to Excel file'
- Import-Module 'ImportExcel'
- $ExportData | Export-Excel -Path .\reports\$exportFileName.xlsx
- Send-ReportData -AttachmentPath .\reports\$exportFileName.xlsx -ExportHTML $ExportBody
-}
-
 function Format-Object {
  begin {
   Write-Host ('{0}, May take some time...' -f $MyInvocation.MyCommand.Name) -F Yellow
@@ -708,11 +697,11 @@ if ($WhatIf) { Show-TestRun }
 
 Import-Module CommonScriptFunctions -Cmdlet Clear-SessionData, Connect-ADSession, Show-TestRun, New-SqlOperation, New-RandomPassword
 Import-Module -Name dbatools -Cmdlet Invoke-DbaQuery, Set-DbatoolsConfig, Connect-DbaInstance, Disconnect-DbaInstance
-Import-Module ImportExcel -Cmdlet Export-Excel
 Import-Module -Name Mailozaurr -Cmdlet Send-EMailMessage
 
 Show-BlockInfo main
 Clear-SessionData
+
 $gam = 'C:\GAM7\gam.exe'
 
 $sqlParams = @{
@@ -732,8 +721,6 @@ $assignedDeviceUser = Get-AssignedDeviceUser -sqlParams $sqlParams
 
 $googleData = Get-GoogleUserData
 $googleCrOSData = Get-GoogleCrOSData
-
-# Export-Report -ExportData (($aDObjs | Get-AssignedDeviceUser $sqlParams).group)
 
 Show-BlockInfo 'Preparing objects'
 $inactive = $inactiveIds |
