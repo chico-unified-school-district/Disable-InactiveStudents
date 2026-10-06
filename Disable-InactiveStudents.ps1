@@ -32,7 +32,6 @@ param (
  [Parameter(Mandatory = $True)][PSCredential]$SISCredential,
  [Parameter(Mandatory = $True)][string[]]$ExportMailTarget,
  [Parameter(Mandatory = $True)][PSCredential]$MailCredential,
- [Parameter(Mandatory = $True)][string[]]$MailTarget,
  [string[]]$BccAddress,
  [string[]]$CCAddress,
  [SWITCH]$Wait,
@@ -69,22 +68,6 @@ function Disable-Chromebook {
    $ErrorActionPreference = 'Stop'
   }
   $_
- }
-}
-
-function Export-Data ([string]$filePath) {
- begin {
-  'SamAccountName,LastLogonDate,WhenCreated,ExpiredGrad' | Out-File -FilePath $filePath -Force
-  $global:myList = [System.Collections.Generic.List[string]]::new()
- }
- process {
-  $msg = ('{0},{1},{2},{3}' -f $_.ad.SamAccountName, $_.ad.LastLogonDate, $_.ad.WhenCreated, $_.expiredGrad)
-  Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.name, $msg) -F DarkCyan
-  $global:myList.Add($msg)
-  $_
- }
- end {
-  $global:myList | Out-File -FilePath $filePath -Force -Append
  }
 }
 
@@ -306,60 +289,6 @@ filter Select-Secondary {
  }
 }
 
-function Send-AlertEmail ([pscredential]$cred) {
- begin {
-  $subject = 'Exiting Student Chromebook Return'
-  $i = 0
- }
- process {
-  $msg = $MyInvocation.MyCommand.name, ($MailTarget -join ','), ($CCAddress -join ','), ($BccAddress -join ',')
-  Write-Host ('{0},To: [{1}],CC: [{2}],BCc: [{3}]' -f $msg) -F blue
-  $mailParams = @{
-   To         = $MailTarget
-   From       = $cred.Username
-   Subject    = $subject
-   HTML       = $_.html
-   SMTPServer = 'smtp.office365.com'
-   Cred       = $cred
-   UseSSL     = $True
-   Port       = 587
-   WhatIf     = $WhatIf
-  }
-  if ($BccAddress) { $mailParams += @{Bcc = $BccAddress } }
-  if ($CCAddress) { $mailParams += @{CC = $CCAddress } }
-  Write-Verbose ($_.html | Out-String)
-  Send-EmailMessage @mailParams
-  if (!$WhatIf) { Start-Sleep -Seconds 60 } # Avoid throttling
-  $i++
- }
- end {
-  Write-Host ('Emails sent: [{0}]' -f $i) -F DarkGreen
- }
-}
-
-function Send-ReportData {
- param (
-  $AttachmentPath,
-  $ExportHTML
- )
- Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, ($ExportMailTarget -join ',')  ) -F blue
- $mailParams = @{
-  To         = $ExportMailTarget
-  From       = $MailCredential.Username
-  Subject    = (Get-Date -f MM/dd/yyyy) + ' - Student Device Recovery Report'
-  HTML       = $ExportHTML
-  Attachment = $AttachmentPath
-  SMTPServer = 'smtp.office365.com'
-  Cred       = $MailCredential
-  UseSSL     = $True
-  Port       = 587
-  WhatIf     = $WhatIf
- }
- if ($BccAddress) { $mailParams += @{Bcc = $BccAddress } }
- Write-Verbose ($_.html | Out-String)
- Send-EmailMessage @mailParams
-}
-
 function Send-MissingCrOSReport ($to, $from, $bcc) {
  process {
   $_.data | Export-Csv -Path '.\reports\missing_cros_report.csv' -NoTypeInformation -Force
@@ -498,15 +427,6 @@ function Set-UserAccountControl ([pscredential]$cred) {
  }
 }
 
-function Show-MissingData {
- process {
-  if (!$_.grad -and !$_.sis) {
-   Write-Verbose ('{0},{1},Missing grad and sis data' -f $MyInvocation.MyCommand.Name, $_.info)
-  }
-  $_
- }
-}
-
 function Show-Obj ($data) {
  begin {
   $i = 0
@@ -526,12 +446,6 @@ function Show-Obj ($data) {
  }
  end {
   Write-Verbose ('{0},Count: {1}' -f $MyInvocation.MyCommand.Name, $i)
- }
-}
-
-function Skip-ActiveSis {
- process {
-  $_ | Where-Object { !$_.sis }
  }
 }
 
@@ -565,13 +479,6 @@ function Skip-SaturdayResets {
  }
 }
 
-function Skip-TestAccounts {
- process {
-  if ($_.ad.Description -match 'test') { return }
-  $_
- }
-}
-
 function Update-AccountExpirationDate ([pscredential]$cred) {
  process {
   if ($_.ad.AccountExpirationDate -is [datetime]) { return $_ }
@@ -585,27 +492,6 @@ function Update-AccountExpirationDate ([pscredential]$cred) {
   }
   Set-ADAccountExpiration @params
   $_
- }
-}
-
-function Update-Chromebook {
- begin {
-  $crosFields = 'serialNumber,orgUnitPath,deviceId,status'
- }
- process {
-  if ($null -eq $_.group) { return }
-  $data = $_.group[0]
-  $sn = $data.serialNumber
-  $msg = $MyInvocation.MyCommand.name, $data.mail, $sn, "& $gam redirect stderr null print cros query `"id: $sn`" fields $crosFields"
-  Write-Host ('{0},[{1}],[{2}],[{3}]' -f $msg) -F magenta
-  $ErrorActionPreference = 'Continue'
-  ($crosDev = & $gam redirect stderr null print cros query "id: $sn" fields $crosFields | ConvertFrom-Csv)*>$null
-  $ErrorActionPreference = 'Stop'
-  if ($crosDev) {
-   $crosDev | Set-ChromebookOU
-   $crosDev | Disable-Chromebook
-   $_
-  }
  }
 }
 
@@ -754,7 +640,7 @@ $inactiveStudentsWithCrOSDevices = $inactive |
 Show-BlockInfo 'Email CrOS report'
 $inactiveStudentsWithCrOSDevices |
  Set-PropEmailParams |
-  Send-MissingCrOSReport -to $MailTarget -from $MailCredential -bcc $BccAddress |
+  Send-MissingCrOSReport -to $ExportMailTarget -from $MailCredential -bcc $BccAddress |
    Show-Obj
 
 Show-BlockInfo 'Removing stale student accounts'
