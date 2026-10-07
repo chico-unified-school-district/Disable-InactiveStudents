@@ -521,7 +521,8 @@ function Update-Grade ([pscredential]$cred) {
 
 function Update-OrgUnitAD ($ou, [pscredential]$cred) {
  process {
-  if ($_.ad.DistinguishedName -like "*$ou*") { return }
+  $userOU = $_.ad.DistinguishedName -replace '^(?:[A-Za-z]+=(?:\\.|[^,])+),\s*', ''
+  if ($userOU -eq $ou) { return }
   Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.Name, $_.info) -F DarkMagenta
   $params = @{
    Identity   = $_.ad.ObjectGUID
