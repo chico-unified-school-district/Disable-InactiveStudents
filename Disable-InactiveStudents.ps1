@@ -95,12 +95,12 @@ function Format-ParentEmailAddresses {
   Write-Host ('{0},[{1}]' -f $MyInvocation.MyCommand.name, $_.group[0].mail) -F DarkCyan
   foreach ($obj in $_.group) {
    if ( -not([DBNull]::Value).Equals($obj.ParentEmail) -and ($null -ne $obj.ParentEmail) -and ($obj.ParentEmail -like '*@*')) {
-    if ($parentEmailList -notmatch $obj.ParentEmail) {
+    if ($parentEmailList -notmatch [regex]::Escape($obj.ParentEmail)) {
      $parentEmailList = $obj.ParentEmail, $parentEmailList -join '; '
     }
    }
    if ( -not([DBNull]::Value).Equals($obj.ParentPortalEmail) ) {
-    if ($parentEmailList -notmatch $obj.ParentPortalEmail) {
+    if ($parentEmailList -notmatch [regex]::Escape($obj.ParentPortalEmail)) {
      $parentEmailList = $obj.ParentPortalEmail, $parentEmailList -join '; '
     }
    }
@@ -216,14 +216,14 @@ function Remove-GoogleLicense ($ou) {
     ($ouCheck = & $gam redirect stderr null print users query "email:$($_.HomePage)" fields 'orgUnitPath' | ConvertFrom-Csv)*>$null
     if (!$ouCheck) { Start-Sleep 7 }
     $i--
-   } until ($ouCheck.orgUnitPath -match $ou -or ($i -eq 0))
+   } until ($ouCheck.orgUnitPath -like [regex]::Escape($ou) -or ($i -eq 0))
   }
 
   $ErrorActionPreference = 'SilentlyContinue'
 
   ($gamUser = & $gam redirect stderr null info user $_.HomePage) *>$null
   foreach ($lic in $license) {
-   if ($gamUser -match $lic) { continue }
+   if ($gamUser -match [regex]::Escape($lic)) { continue }
    $msg = $MyInvocation.MyCommand.name, $_.info, $lic
    Write-Host ('{0},{1},{2}' -f $msg) -F DarkMagenta
    if (!$WhatIf) {
@@ -451,7 +451,7 @@ function Show-Obj ($data) {
 
 function Skip-Disabled ($ou) {
  process {
-  if (($_.ad.Enabled -eq $false -or $_.ad.Enabled -eq 'false') -and $_.ad.DistinguishedName -match $ou) { return }
+  if (($_.ad.Enabled -eq $false -or $_.ad.Enabled -eq 'false') -and $_.ad.DistinguishedName -match [regex]::Escape($ou)) { return }
   $_
  }
 }
@@ -540,7 +540,7 @@ function Update-Grade ([pscredential]$cred) {
 
 function Update-OrgUnitAD ($ou, [pscredential]$cred) {
  process {
-  if ($_.DistinguishedName -match $ou ) { return }
+  if ($_.DistinguishedName -match [regex]::Escape($ou)) { return }
   Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.Name, $_.info) -F Magenta
   $params = @{
    Identity   = $_.ad.ObjectGUID
@@ -556,7 +556,7 @@ function Update-OrgUnitAD ($ou, [pscredential]$cred) {
 
 function Update-OrgUnitGoogle ($ou) {
  process {
-  if ($_.google.orgUnitPath -match $ou) { return $_ }
+  if ($_.google.orgUnitPath -match [regex]::Escape($ou)) { return $_ }
   Write-Host ('{0},{1},[{2}]' -f $MyInvocation.MyCommand.Name, $_.info, $ou) -F Magenta
   if (!$WhatIf) { (& $gam redirect stderr null update user "$($_.ad.HomePage)" org "$ou")*>null }
   $_
@@ -565,7 +565,7 @@ function Update-OrgUnitGoogle ($ou) {
 
 function Update-OrgUnitGoogleCrOS ($ou) {
  process {
-  if ($_.googleCrOS.orgUnitPath -match $ou) { return }
+  if ($_.googleCrOS.orgUnitPath -match [regex]::Escape($ou)) { return }
   $id = $_.googleCrOS.deviceId
   $msg = $MyInvocation.MyCommand.name, $_.info, "& $gam redirect stderr null update cros $id ou $ou"
   Write-Host ('{0},[{1}],[{2}]' -f $msg) -F magenta
@@ -578,12 +578,14 @@ function Update-OrgUnitGoogleCrOS ($ou) {
  }
 }
 
-# ======================================= Processing ======================================
-if ($WhatIf) { Show-TestRun }
 
+# ======================================= Processing ======================================
 Import-Module CommonScriptFunctions -Cmdlet Clear-SessionData, Connect-ADSession, Show-TestRun, New-SqlOperation, New-RandomPassword
 Import-Module -Name dbatools -Cmdlet Invoke-DbaQuery, Set-DbatoolsConfig, Connect-DbaInstance, Disconnect-DbaInstance
 Import-Module -Name Mailozaurr -Cmdlet Send-EMailMessage
+
+Show-BlockInfo ('Process Start: ' + (Get-Date))
+if ($WhatIf) { Show-TestRun }
 
 Show-BlockInfo main
 Clear-SessionData
@@ -653,3 +655,4 @@ $inactive |
 
 Clear-SessionData
 if ($WhatIf) { Show-TestRun }
+Show-BlockInfo ('Process End: ' + (Get-Date))
