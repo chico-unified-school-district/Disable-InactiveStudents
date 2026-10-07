@@ -214,7 +214,7 @@ function Remove-GoogleLicense ($ou) {
     $i--
    } until (($ouCheck.orgUnitPath -eq $ou) -or ($i -eq 0))
   }
-  Write-Host ('{0},{1},{2}' -f $MyInvocation.MyCommand.name, $_.info, $lic) -F DarkMagenta
+  Write-Host ('{0},{1},1010310008' -f $MyInvocation.MyCommand.name, $_.info ) -F DarkMagenta
   if (!$WhatIf) { (& $gam redirect stderr null user "$($_.ad.HomePage)" del license 1010310008)*>$null }
   $_
  }
@@ -263,7 +263,7 @@ function Select-ADStale ([int]$months) {
  }
 }
 
-filter Select-Secondary {
+function Select-Secondary {
  process {
   if ($_.ad.gecos -isnot [int]) { return $_ }
   $_ | Where-Object { [int]$_.ad.gecos -ge 6 }
@@ -432,7 +432,7 @@ function Show-Obj ($data) {
 
 function Skip-Disabled ($ou) {
  process {
-  if (($_.ad.Enabled -eq $false -or $_.ad.Enabled -eq 'false') -and $_.ad.DistinguishedName -match [regex]::Escape($ou)) { return }
+  if (($_.ad.Enabled -eq $false) -and $_.ad.DistinguishedName -like "*$ou*") { return }
   $_
  }
 }
@@ -521,7 +521,7 @@ function Update-Grade ([pscredential]$cred) {
 
 function Update-OrgUnitAD ($ou, [pscredential]$cred) {
  process {
-  if ($_.ad.DistinguishedName -match [regex]::Escape($ou)) { return }
+  if ($_.ad.DistinguishedName -like "*$ou*") { return }
   Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.Name, $_.info) -F DarkMagenta
   $params = @{
    Identity   = $_.ad.ObjectGUID
