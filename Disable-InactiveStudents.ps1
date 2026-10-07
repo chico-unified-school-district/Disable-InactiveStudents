@@ -202,11 +202,6 @@ function Get-InactiveSeniors ($sqlParams) {
 }
 
 function Remove-GoogleLicense ($ou) {
- begin {
-  $license = @(
-   1010310008 # Google Workspace for Education Plus
-  )
- }
  process {
   # if (!($_.gSuiteData)) { return $_ } # Skip if no GSuite data
   if (!$WhatIf) {
@@ -216,25 +211,10 @@ function Remove-GoogleLicense ($ou) {
     ($ouCheck = & $gam redirect stderr null print users query "email:$($_.HomePage)" fields 'orgUnitPath' | ConvertFrom-Csv)*>$null
     if (!$ouCheck) { Start-Sleep 7 }
     $i--
-   } until ($ouCheck.orgUnitPath -like [regex]::Escape($ou) -or ($i -eq 0))
+   } until (($ouCheck.orgUnitPath -eq $ou) -or ($i -eq 0))
   }
-
-  $ErrorActionPreference = 'SilentlyContinue'
-
-  ($gamUser = & $gam redirect stderr null info user $_.HomePage) *>$null
-  foreach ($lic in $license) {
-   if ($gamUser -match [regex]::Escape($lic)) { continue }
-   $msg = $MyInvocation.MyCommand.name, $_.info, $lic
-   Write-Host ('{0},{1},{2}' -f $msg) -F DarkMagenta
-   if (!$WhatIf) {
-    try { (& $gam redirect stderr null user "$($_.ad.HomePage)" del license $lic)*>$null }
-    catch {
-     Write-Host ('{0},{1},{2},Error Removing License' -f $msg) -F Red
-    }
-   }
-  }
-
-  $ErrorActionPreference = 'Stop'
+  Write-Host ('{0},{1},{2}' -f $MyInvocation.MyCommand.name, $_.info, $lic) -F DarkMagenta
+  if (!$WhatIf) { (& $gam redirect stderr null user "$($_.ad.HomePage)" del license 1010310008)*>$null }
   $_
  }
 }
@@ -540,8 +520,8 @@ function Update-Grade ([pscredential]$cred) {
 
 function Update-OrgUnitAD ($ou, [pscredential]$cred) {
  process {
-  if ($_.DistinguishedName -match [regex]::Escape($ou)) { return }
-  Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.Name, $_.info) -F Magenta
+  if ($_.ad.DistinguishedName -match [regex]::Escape($ou)) { return }
+  Write-Host ('{0},{1}' -f $MyInvocation.MyCommand.Name, $_.info) -F DarkMagenta
   $params = @{
    Identity   = $_.ad.ObjectGUID
    TargetPath = $ou
@@ -557,7 +537,7 @@ function Update-OrgUnitAD ($ou, [pscredential]$cred) {
 function Update-OrgUnitGoogle ($ou) {
  process {
   if ($_.google.orgUnitPath -match [regex]::Escape($ou)) { return $_ }
-  Write-Host ('{0},{1},[{2}]' -f $MyInvocation.MyCommand.Name, $_.info, $ou) -F Magenta
+  Write-Host ('{0},{1},[{2}]' -f $MyInvocation.MyCommand.Name, $_.info, $ou) -F DarkMagenta
   if (!$WhatIf) { (& $gam redirect stderr null update user "$($_.ad.HomePage)" org "$ou")*>null }
   $_
  }
@@ -568,7 +548,7 @@ function Update-OrgUnitGoogleCrOS ($ou) {
   if ($_.googleCrOS.orgUnitPath -match [regex]::Escape($ou)) { return }
   $id = $_.googleCrOS.deviceId
   $msg = $MyInvocation.MyCommand.name, $_.info, "& $gam redirect stderr null update cros $id ou $ou"
-  Write-Host ('{0},[{1}],[{2}]' -f $msg) -F magenta
+  Write-Host ('{0},[{1}],[{2}]' -f $msg) -F DarkMagenta
   if (!$WhatIf) {
    $ErrorActionPreference = 'Continue'
    (& $gam redirect stderr null update cros $id ou $ou)*>$null
