@@ -203,8 +203,9 @@ function Get-InactiveSeniors ($sqlParams) {
 
 function Remove-GoogleLicense ($ou) {
  process {
-  # if (!($_.gSuiteData)) { return $_ } # Skip if no GSuite data
-  if (!$WhatIf) {
+  if (!$WhatIf -and ($_.google.OrgUnitPath -ne $ou)) {
+   $msg = $MyInvocation.MyCommand.Name, $_.info, $ou, $_.google.OrgUnitPath
+   Write-Host ('{0},{1},Confirming Google OrgUnitPath [{2}], Current OrgUnitPath [{3}]' -f $msg) -Fore Black -Back DarkCyan
    $i = 20
    do {
     # Wait for Google Workspace to update user orgUnit
