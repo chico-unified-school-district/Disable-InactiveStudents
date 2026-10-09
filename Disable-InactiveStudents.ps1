@@ -202,6 +202,9 @@ function Get-InactiveSeniors ($sqlParams) {
 }
 
 function Remove-GoogleLicense ($ou) {
+ begin {
+  $licSku = '1010310008'
+ }
  process {
   if (!$WhatIf -and ($_.google.OrgUnitPath -ne $ou)) {
    $msg = $MyInvocation.MyCommand.Name, $_.info, $ou, $_.google.OrgUnitPath
@@ -214,8 +217,11 @@ function Remove-GoogleLicense ($ou) {
     $i--
    } until (($ouCheck.orgUnitPath -eq $ou) -or ($i -eq 0))
   }
-  Write-Host ('{0},{1},1010310008' -f $MyInvocation.MyCommand.name, $_.info ) -F DarkMagenta
-  if (!$WhatIf) { (& $gam redirect stderr null user "$($_.ad.HomePage)" del license 1010310008)*>$null }
+  Write-Verbose ('{0},{1},Getting Google license info' -f $MyInvocation.MyCommand.Name, $_.info)
+  ($check = & $gam info user "$($_.ad.HomePage)")*>$null
+  if ($check -notmatch $licSku) { return $_ }
+  Write-Host ('{0},{1},{2}' -f $MyInvocation.MyCommand.name, $_.info, $licSku ) -F DarkMagenta
+  if (!$WhatIf) { (& $gam redirect stderr null user "$($_.ad.HomePage)" del license $licSku)*>$null }
   $_
  }
 }
@@ -364,7 +370,6 @@ function Set-PropGoogleData ($data) {
  process {
   $mail = $_.ad.HomePage
   $_.google = $data.Where({ $_.primaryEmail -eq $mail })
-  # if (!$_.google) { Write-Verbose ('{0},No Google data found for {1}' -f $MyInvocation.MyCommand.Name, $mail); Read-Host 'continue' }
   $_
  }
 }
@@ -430,9 +435,15 @@ function Show-Obj ($data) {
  }
 }
 
-function Skip-Disabled ($ou) {
+function Skip-Processed ($orgUnitGoogle, $orgUnitAD) {
  process {
-  if (($_.ad.Enabled -eq $false) -and $_.ad.DistinguishedName -like "*$ou*") { return }
+  # Try to avoid the gam.exe info user query penalty.
+  if (($_.ad.DistinguishedName -match $orgUnitAD) -and
+   ($_.google.orgUnitPath -match $orgUnitGoogle) -and
+   ($_.google.archived) -and
+   ($_.google.suspended)) {
+   return (Write-Verbose ('{0},{1},Skipping processed user' -f $MyInvocation.MyCommand.Name, $_.info))
+  }
   $_
  }
 }
@@ -521,7 +532,7 @@ function Update-Grade ([pscredential]$cred) {
 
 function Update-OrgUnitAD ($ou, [pscredential]$cred) {
  process {
-  if ($_.ad.DistinguishedName -match [regex]::Escape($ou)) { return $_ }
+  if ($_.ad.DistinguishedName -match $ou) { return $_ }
   Write-Host ('{0},{1},Current OU {2}, Target OU {3}' -f $MyInvocation.MyCommand.Name, $_.info, $userOU, $ou) -F DarkMagenta
   $params = @{
    Identity   = $_.ad.ObjectGUID
@@ -537,7 +548,7 @@ function Update-OrgUnitAD ($ou, [pscredential]$cred) {
 
 function Update-OrgUnitGoogle ($ou) {
  process {
-  if ($_.google.orgUnitPath -match [regex]::Escape($ou)) { return $_ }
+  if ($_.google.orgUnitPath -match $ou) { return $_ }
   Write-Host ('{0},{1},[{2}]' -f $MyInvocation.MyCommand.Name, $_.info, $ou) -F DarkMagenta
   if (!$WhatIf) { (& $gam redirect stderr null update user "$($_.ad.HomePage)" org "$ou")*>null }
   $_
@@ -602,7 +613,7 @@ $inactive = $inactiveIds |
 
 Show-BlockInfo 'Disabling inactive student accounts'
 $inactive |
- Skip-Disabled -ou $OrgUnitNoLicAD |
+ Skip-Processed -orgUnitGoogle $OrgUnitNoLicGoogle -orgUnitAD $OrgUnitNoLicAD |
   Update-Grade -cred $ADCredential |
    Update-GoogleArchive |
     Update-OrgUnitAD -ou $OrgUnitNoLicAD -cred $ADCredential |
