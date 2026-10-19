@@ -451,12 +451,12 @@ function Skip-Processed ($orgUnitGoogle, $orgUnitAD) {
 function Skip-RecentGraduate ($months) {
  process {
   if (!$_.grad) { return $_ }
+  # Write-Verbose ('{0},{1},{2}' -f $MyInvocation.MyCommand.Name, $_.info, $_.grad.completionDate)
   $completionGraceCutoffDate = (Get-Date $_.grad.completionDate).AddMonths($months)
   $msg = $MyInvocation.MyCommand.Name, $_.info, $completionGraceCutoffDate
   if ((Get-Date) -lt $completionGraceCutoffDate) {
    return (Write-Host ('{0},{1},{2},Qualifying Senior Detected. Skipping' -f $msg) -f Magenta)
   }
-  # Write-Verbose ('{0},{1},{2},Expired Senior detected.' -f $msg)
   $_.expiredGrad = $true
   $_
  }
